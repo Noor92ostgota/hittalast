@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>hittalast.se</title>
+<link rel="icon" type="image/png" href="/logo.png">
+<link rel="apple-touch-icon" href="/logo.png">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
@@ -14,7 +16,11 @@
   *{box-sizing:border-box}
   body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
   header.topbar{background:#0f2847;color:#fff;padding:12px 20px;display:flex;align-items:center;gap:16px}
-  header.topbar h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.3px}
+  header.topbar h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.3px;display:flex;align-items:center}
+  header.topbar .brand-link{display:flex;align-items:center;text-decoration:none}
+  header.topbar .brand-logo{height:52px;width:auto;background:#fff;padding:6px 12px;border-radius:8px;display:block;max-width:200px;object-fit:contain}
+  @media (max-width:900px){header.topbar .brand-logo{height:44px;padding:5px 10px}}
+  @media (max-width:600px){header.topbar .brand-logo{height:38px;padding:4px 8px;max-width:140px}}
   header.topbar nav{display:flex;gap:8px;margin-left:auto;align-items:center}
   header.topbar nav a{color:#dbe4f0;text-decoration:none;padding:6px 10px;border-radius:6px}
   header.topbar nav a:hover{background:rgba(255,255,255,.08)}
@@ -130,8 +136,12 @@
   .landing::after{content:"";position:absolute;bottom:-30%;right:-10%;width:70%;height:70%;background:radial-gradient(circle,rgba(255,200,80,.10) 0%,transparent 70%);pointer-events:none}
   .landing-inner{max-width:1100px;margin:0 auto;padding:60px 24px 40px;position:relative;z-index:1}
   .landing-nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:60px}
-  .landing-logo{font-size:24px;font-weight:700;letter-spacing:-.5px;display:flex;align-items:center;gap:8px;cursor:pointer;color:#fff;text-decoration:none}
-  .landing-logo-mark{display:inline-block;width:36px;height:36px;background:#fff;border-radius:10px;color:var(--brand);display:inline-flex;align-items:center;justify-content:center;font-size:22px}
+  .landing-logo{display:inline-flex;align-items:center;cursor:pointer;text-decoration:none;background:#fff;padding:10px 16px;border-radius:12px;box-shadow:0 4px 14px rgba(0,0,0,.18)}
+  .landing-logo-img{height:48px;width:auto;display:block}
+  @media (max-width:600px){
+    .landing-logo{padding:8px 12px;border-radius:10px}
+    .landing-logo-img{height:38px}
+  }
   .landing-hero{display:grid;grid-template-columns:1.2fr 1fr;gap:48px;align-items:center}
   .landing-eyebrow{display:inline-block;background:rgba(255,255,255,.12);padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600;letter-spacing:.4px;margin-bottom:18px;backdrop-filter:blur(6px)}
   .landing-h1{font-size:clamp(32px,5vw,52px);line-height:1.08;margin:0 0 18px;font-weight:700;letter-spacing:-.8px}
@@ -956,7 +966,7 @@ function layout(inner) {
                <a href="#" id="logout-link"><span class="label">Logga ut</span> ↩</a>` : '';
   return `
     <header class="topbar">
-      <h1>🚚 hittalast.se</h1>
+      <h1><a href="#/" class="brand-link"><img src="/logo.png" alt="hittalast.se" class="brand-logo"></a></h1>
       <button id="hamburger" class="hamburger" aria-label="Meny" aria-expanded="false">
         <span></span><span></span><span></span>
       </button>
@@ -1023,7 +1033,7 @@ route(/^\/login$/, async () => {
   document.getElementById('app').innerHTML = `
     <div class="auth-wrap">
       <div class="card">
-        <h2>🚚 hittalast.se</h2>
+        <div style="text-align:center;margin-bottom:16px"><img src="/logo.png" alt="hittalast.se" style="max-width:240px;width:100%;height:auto"></div>
         <form id="loginForm">
           <div class="field"><label>E-post</label><input name="email" type="email" required autocomplete="username"></div>
           <div class="field"><label>Lösenord</label><input name="pwd" type="password" required autocomplete="current-password"></div>
@@ -1131,8 +1141,7 @@ async function publicDashboard() {
       <div class="landing-inner">
         <nav class="landing-nav">
           <a class="landing-logo" id="landing-logo-tap">
-            <span class="landing-logo-mark">🚚</span>
-            <span>hittalast.se</span>
+            <img src="/logo.png" alt="hittalast.se" class="landing-logo-img">
           </a>
         </nav>
 
