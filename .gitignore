@@ -24,3 +24,8 @@ auto-bookings.json
 _emails.json
 _emails-live.json
 demo-bookings.json
+
+# Build-script (lokalt verktyg, inte deployment)
+gen-icons.js
+package.json
+package-lock.json

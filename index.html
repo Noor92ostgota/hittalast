@@ -3,9 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>hittalast.se</title>
+<title>hittalast.se — Hitta last, returlaster & uppdrag</title>
+<meta name="description" content="Digital marknadsplats för åkerier och speditörer. Matcha transportuppdrag, hitta returlaster och förhandla pris direkt.">
 <link rel="icon" type="image/png" href="/logo.png">
 <link rel="apple-touch-icon" href="/logo.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0f2847">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="hittalast">
+<meta name="mobile-web-app-capable" content="yes">
+<meta property="og:title" content="hittalast.se — Sveriges marknadsplats för åkerier">
+<meta property="og:description" content="Minska tomkörningar, öka lönsamheten och maximera kapaciteten i varje fordon.">
+<meta property="og:image" content="https://hittalast.se/logo.png">
+<meta property="og:url" content="https://hittalast.se">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
@@ -3668,6 +3681,41 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
     };
   }
 }
+
+// --------- PWA: service worker-registrering ---------
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW registration failed:', err));
+  });
+}
+
+// --------- PWA: "Installera app"-prompt ---------
+let _deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  _deferredInstallPrompt = e;
+  // Visa en diskret toast efter 3 sek när användaren är på landningssidan
+  setTimeout(() => {
+    if (location.hash === '#/' || location.hash === '') {
+      const existing = document.getElementById('install-toast');
+      if (existing) return;
+      const t = document.createElement('div');
+      t.id = 'install-toast';
+      t.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#fff;color:#1a1d22;padding:14px 18px;border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.25);z-index:2000;display:flex;align-items:center;gap:12px;max-width:92%;font-size:14px';
+      t.innerHTML = '<span>📱 Installera hittalast som app?</span><button id="install-yes" style="background:#1f5fb0;color:#fff;border:0;padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:600">Installera</button><button id="install-no" style="background:transparent;border:0;cursor:pointer;color:#6b7280;font-size:20px;padding:0 4px">×</button>';
+      document.body.appendChild(t);
+      document.getElementById('install-yes').onclick = async () => {
+        t.remove();
+        if (_deferredInstallPrompt) {
+          _deferredInstallPrompt.prompt();
+          await _deferredInstallPrompt.userChoice;
+          _deferredInstallPrompt = null;
+        }
+      };
+      document.getElementById('install-no').onclick = () => { t.remove(); _deferredInstallPrompt = null; };
+    }
+  }, 3000);
+});
 
 // --------- Start ---------
 (async () => {
