@@ -2980,6 +2980,8 @@ function openSubscriptionInvoice(r) {
 route(/^\/subscription$/, async (_m, u) => {
   if (!u) return navigate('/login');
   if (u.role === 'chauffor') return navigate('/');
+  // Admin har ingen egen prenumeration — skicka till admin-översikten istället
+  if (u.role === 'admin') return navigate('/settlement');
   const target = await db.get('users', u.id);
   const count = (await db.byIndex('vehicles', 'haulerId', u.id)).length;
   const cost = monthlyCostFor(count, target);
