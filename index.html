@@ -15,12 +15,12 @@
   }
   *{box-sizing:border-box}
   body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
-  header.topbar{background:#fff;color:var(--ink);padding:10px 20px;display:flex;align-items:center;gap:16px;border-bottom:1px solid var(--line);box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  header.topbar{background:#fff;color:var(--ink);padding:8px 20px;display:flex;align-items:center;gap:16px;border-bottom:1px solid var(--line);box-shadow:0 1px 3px rgba(0,0,0,.04)}
   header.topbar h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.3px;display:flex;align-items:center}
   header.topbar .brand-link{display:flex;align-items:center;text-decoration:none}
-  header.topbar .brand-logo{height:48px;width:auto;display:block;max-width:200px;object-fit:contain}
-  @media (max-width:900px){header.topbar .brand-logo{height:40px}}
-  @media (max-width:600px){header.topbar .brand-logo{height:34px;max-width:140px}}
+  header.topbar .brand-logo{height:72px;width:auto;display:block;max-width:280px;object-fit:contain}
+  @media (max-width:900px){header.topbar{padding:8px 14px}header.topbar .brand-logo{height:60px;max-width:220px}}
+  @media (max-width:600px){header.topbar{padding:6px 10px}header.topbar .brand-logo{height:48px;max-width:170px}}
   header.topbar nav{display:flex;gap:6px;margin-left:auto;align-items:center}
   header.topbar nav a{color:#374151;text-decoration:none;padding:8px 12px;border-radius:6px;font-weight:500;font-size:13px}
   header.topbar nav a:hover{background:#f3f4f6;color:#0f2847}
@@ -138,12 +138,19 @@
   .landing::after{content:"";position:absolute;bottom:-30%;right:-10%;width:70%;height:70%;background:radial-gradient(circle,rgba(255,200,80,.10) 0%,transparent 70%);pointer-events:none}
   .landing-inner{max-width:1100px;margin:0 auto;padding:60px 24px 40px;position:relative;z-index:1}
   .landing-nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:60px}
-  .landing-logo{display:inline-flex;align-items:center;cursor:pointer;text-decoration:none;background:#fff;padding:14px 22px;border-radius:16px;box-shadow:0 8px 28px rgba(0,0,0,.22)}
-  .landing-logo-img{height:64px;width:auto;display:block}
-  @media (max-width:900px){.landing-logo-img{height:54px}}
+  .landing-logo{display:inline-flex;align-items:center;cursor:pointer;text-decoration:none;background:#fff;padding:20px 32px;border-radius:20px;box-shadow:0 12px 36px rgba(0,0,0,.28)}
+  .landing-logo-img{height:120px;width:auto;display:block;max-width:100%}
+  @media (max-width:900px){
+    .landing-logo{padding:16px 24px;border-radius:16px}
+    .landing-logo-img{height:96px}
+  }
   @media (max-width:600px){
-    .landing-logo{padding:10px 16px;border-radius:12px}
-    .landing-logo-img{height:44px}
+    .landing-logo{padding:12px 18px;border-radius:14px}
+    .landing-logo-img{height:72px}
+  }
+  @media (max-width:380px){
+    .landing-logo{padding:10px 14px}
+    .landing-logo-img{height:58px}
   }
   .landing-hero{display:grid;grid-template-columns:1.2fr 1fr;gap:48px;align-items:center}
   .landing-eyebrow{display:inline-block;background:rgba(255,255,255,.12);padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600;letter-spacing:.4px;margin-bottom:18px;backdrop-filter:blur(6px)}
