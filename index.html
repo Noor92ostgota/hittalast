@@ -95,6 +95,56 @@
   .stat .val{font-size:22px;font-weight:600}
   .stat .lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-top:2px}
 
+  /* ============== LANDING PAGE (lansering 1 juni) ============== */
+  .landing{min-height:100vh;background:linear-gradient(135deg,#0f2847 0%,#1f5fb0 60%,#2d7fd9 100%);color:#fff;position:relative;overflow:hidden}
+  .landing::before{content:"";position:absolute;top:-10%;left:-10%;width:60%;height:60%;background:radial-gradient(circle,rgba(255,255,255,.08) 0%,transparent 70%);pointer-events:none}
+  .landing::after{content:"";position:absolute;bottom:-30%;right:-10%;width:70%;height:70%;background:radial-gradient(circle,rgba(255,200,80,.10) 0%,transparent 70%);pointer-events:none}
+  .landing-inner{max-width:1100px;margin:0 auto;padding:60px 24px 40px;position:relative;z-index:1}
+  .landing-nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:60px}
+  .landing-logo{font-size:24px;font-weight:700;letter-spacing:-.5px;display:flex;align-items:center;gap:8px;cursor:pointer;color:#fff;text-decoration:none}
+  .landing-logo-mark{display:inline-block;width:36px;height:36px;background:#fff;border-radius:10px;color:var(--brand);display:inline-flex;align-items:center;justify-content:center;font-size:22px}
+  .landing-staff{font-size:13px;color:rgba(255,255,255,.55);text-decoration:none;cursor:pointer}
+  .landing-staff:hover{color:rgba(255,255,255,.85)}
+  .landing-hero{display:grid;grid-template-columns:1.2fr 1fr;gap:48px;align-items:center}
+  .landing-eyebrow{display:inline-block;background:rgba(255,255,255,.12);padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600;letter-spacing:.4px;margin-bottom:18px;backdrop-filter:blur(6px)}
+  .landing-h1{font-size:clamp(32px,5vw,52px);line-height:1.08;margin:0 0 18px;font-weight:700;letter-spacing:-.8px}
+  .landing-h1 .accent{color:#fcd34d}
+  .landing-sub{font-size:clamp(15px,1.4vw,18px);line-height:1.55;color:rgba(255,255,255,.86);margin-bottom:28px;max-width:560px}
+  .landing-bullets{list-style:none;padding:0;margin:0 0 32px;display:flex;flex-wrap:wrap;gap:10px 20px}
+  .landing-bullets li{display:flex;align-items:center;gap:6px;font-size:14px;color:rgba(255,255,255,.92)}
+  .landing-bullets li::before{content:"✓";color:#fcd34d;font-weight:bold}
+  .landing-card{background:rgba(255,255,255,.97);color:var(--ink);padding:30px;border-radius:16px;box-shadow:0 25px 60px rgba(0,0,0,.3),0 8px 20px rgba(0,0,0,.15);position:relative}
+  .landing-card h2{font-size:20px;margin:0 0 6px;color:var(--ink)}
+  .landing-card .lead{font-size:13px;color:var(--muted);margin-bottom:18px}
+  .landing-card label{font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px;display:block}
+  .landing-card input,.landing-card select{width:100%;padding:11px 14px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:14px;background:#fff;margin-bottom:12px}
+  .landing-card input:focus,.landing-card select:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(31,95,176,.15)}
+  .landing-card .btn-primary{width:100%;padding:13px;background:linear-gradient(135deg,#1f5fb0 0%,#2d7fd9 100%);color:#fff;border:0;border-radius:8px;font-weight:600;font-size:15px;cursor:pointer;letter-spacing:.2px;transition:transform .1s,box-shadow .2s;box-shadow:0 4px 14px rgba(31,95,176,.4)}
+  .landing-card .btn-primary:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 6px 18px rgba(31,95,176,.5)}
+  .landing-card .btn-primary:disabled{opacity:.7;cursor:not-allowed}
+  .landing-card .fineprint{font-size:11px;color:var(--muted);text-align:center;margin-top:14px;line-height:1.5}
+  .landing-success{background:#d6f2e0;color:#147a3d;padding:24px;border-radius:12px;text-align:center}
+  .landing-success h3{margin:0 0 8px;font-size:18px;color:#147a3d}
+  .landing-success p{margin:0;font-size:14px}
+  .countdown{display:flex;gap:14px;margin:30px 0}
+  .countdown-box{flex:1;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:14px 6px;text-align:center;backdrop-filter:blur(6px)}
+  .countdown-val{font-size:clamp(22px,3.5vw,34px);font-weight:700;line-height:1;color:#fff}
+  .countdown-lbl{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:rgba(255,255,255,.7);margin-top:4px}
+  .landing-features{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:80px;padding-top:48px;border-top:1px solid rgba(255,255,255,.12)}
+  .feature{background:rgba(255,255,255,.06);padding:22px;border-radius:14px;border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(8px)}
+  .feature h3{font-size:15px;margin:0 0 8px;color:#fff;font-weight:600}
+  .feature p{font-size:13px;color:rgba(255,255,255,.78);line-height:1.5;margin:0}
+  .feature-icon{font-size:24px;margin-bottom:8px;display:block}
+  .landing-footer{text-align:center;padding:40px 0 20px;color:rgba(255,255,255,.55);font-size:12px}
+  @media (max-width:800px){
+    .landing-inner{padding:30px 16px}
+    .landing-hero{grid-template-columns:1fr;gap:30px}
+    .landing-nav{margin-bottom:30px}
+    .landing-features{grid-template-columns:1fr;gap:14px;margin-top:50px;padding-top:30px}
+    .countdown{gap:8px}
+    .countdown-box{padding:10px 4px}
+  }
+
   /* ============== RESPONSIVE: tablet (≤900px) ============== */
   @media (max-width:900px){
     main{padding:0 14px;margin:16px auto}
@@ -829,8 +879,10 @@ async function render() {
   _unreadCache = user ? await unreadCount(user.id) : 0;
 
   // Publika rutter (utan inlogg)
-  const publicHashes = ['/', '/public', '/login', '/register'];
-  const isPublicBooking = /^\/booking\/[\w-]+$/.test(hash);
+  // Tills vidare (innan lansering) är endast landningssidan och login publika.
+  // /register och publika bokningar omdirigeras till landningssidan.
+  const publicHashes = ['/', '/login'];
+  const isPublicBooking = false;
   if (!user && !publicHashes.includes(hash) && !isPublicBooking) {
     return navigate('/');
   }
@@ -998,58 +1050,185 @@ route(/^\/$/, async (_m, u) => {
 });
 
 // --------- Publik vy (utan inlogg) ---------
+// ============== LANDNINGSSIDA — låst tills 1 juni 2026 ==============
+const LAUNCH_DATE = new Date('2026-06-01T00:00:00+02:00');
+
 async function publicDashboard() {
-  const open = await db.byIndex('bookings', 'status', 'open');
-  applySort(open);
-  const sortKey = getSortKey();
-  const sortOpts = Object.entries(SORT_OPTIONS).map(([k,v]) => `<option value="${k}" ${k===sortKey?'selected':''}>${v.label}</option>`).join('');
-  mount(`
-    <div class="banner info">
-      <b>Välkommen till hittalast.se!</b> Här ser du alla tillgängliga körningar.
-      <a href="#/login">Logga in</a> eller <a href="#/register">registrera dig</a> för att acceptera uppdrag eller publicera egna körningar.
+  const app = document.getElementById('app');
+  const renderCountdown = () => {
+    const now = Date.now();
+    const diff = LAUNCH_DATE.getTime() - now;
+    if (diff <= 0) {
+      return '<div class="countdown-box" style="flex:1"><div class="countdown-val">🚀</div><div class="countdown-lbl">Lansering pågår</div></div>';
+    }
+    const d = Math.floor(diff / 86400000);
+    const h = Math.floor((diff % 86400000) / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    return `
+      <div class="countdown-box"><div class="countdown-val" data-cd="d">${d}</div><div class="countdown-lbl">Dagar</div></div>
+      <div class="countdown-box"><div class="countdown-val" data-cd="h">${String(h).padStart(2,'0')}</div><div class="countdown-lbl">Timmar</div></div>
+      <div class="countdown-box"><div class="countdown-val" data-cd="m">${String(m).padStart(2,'0')}</div><div class="countdown-lbl">Minuter</div></div>
+      <div class="countdown-box"><div class="countdown-val" data-cd="s">${String(s).padStart(2,'0')}</div><div class="countdown-lbl">Sekunder</div></div>`;
+  };
+
+  app.innerHTML = `
+    <div class="landing">
+      <div class="landing-inner">
+        <nav class="landing-nav">
+          <a class="landing-logo" id="landing-logo-tap">
+            <span class="landing-logo-mark">🚚</span>
+            <span>hittalast.se</span>
+          </a>
+          <a class="landing-staff" id="landing-staff">Personalingång →</a>
+        </nav>
+
+        <div class="landing-hero">
+          <div>
+            <span class="landing-eyebrow">🟡 Lansering 1 juni 2026 — gå med i väntelistan</span>
+            <h1 class="landing-h1">Sluta köra <span class="accent">tomt hem</span>.<br>Hitta din nästa last.</h1>
+            <p class="landing-sub">
+              Sveriges nya marknadsplats för åkerier och speditörer. Matcha lediga lastbilar med körningar, förhandla pris direkt och få returlast på vägen hem — utan provision på enskilda transporter.
+            </p>
+            <ul class="landing-bullets">
+              <li>Fast månadsavgift — ingen provision</li>
+              <li>14 dagars gratis provperiod</li>
+              <li>Ditt företag äger relationerna</li>
+              <li>Bygg i Sverige · GDPR-säker</li>
+            </ul>
+            <div class="countdown" id="countdown">${renderCountdown()}</div>
+          </div>
+
+          <div class="landing-card">
+            <div id="signup-area">
+              <h2>Gå med i väntelistan</h2>
+              <p class="lead">Var bland de första att få inbjudan när vi öppnar 1 juni. Ingen förpliktelse, du kan avregistrera dig när som helst.</p>
+              <form id="waitlist-form">
+                <label>E-postadress *</label>
+                <input type="email" name="email" required placeholder="namn@dittforetag.se" autocomplete="email">
+
+                <label>För- och efternamn</label>
+                <input type="text" name="name" placeholder="Anna Andersson" autocomplete="name">
+
+                <label>Företag</label>
+                <input type="text" name="company" placeholder="Östgöta Åkeri AB" autocomplete="organization">
+
+                <label>Telefon</label>
+                <input type="tel" name="phone" placeholder="070-123 45 67" autocomplete="tel">
+
+                <label>Roll</label>
+                <select name="role">
+                  <option value="">Välj…</option>
+                  <option value="akare">Åkare</option>
+                  <option value="speditor">Speditör</option>
+                  <option value="forare">Förare</option>
+                  <option value="annan">Annan</option>
+                </select>
+
+                <label>Storlek på fordonsflotta</label>
+                <select name="fleet_size">
+                  <option value="">Välj…</option>
+                  <option value="0">Inga fordon ännu</option>
+                  <option value="1-5">1–5 bilar</option>
+                  <option value="6-15">6–15 bilar</option>
+                  <option value="16-30">16–30 bilar</option>
+                  <option value="30+">30+ bilar</option>
+                </select>
+
+                <button type="submit" class="btn-primary" id="signup-btn">Sätt mig på listan →</button>
+                <p class="fineprint">Vi sparar dina uppgifter enbart för att kunna kontakta dig om plattformen. Inget spam.</p>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <div class="landing-features">
+          <div class="feature">
+            <span class="feature-icon">🚛</span>
+            <h3>Lediga bilar — full kontroll</h3>
+            <p>Publicera lediga fordon med plats, rutt och tider. Få förfrågningar direkt utan mellanhand.</p>
+          </div>
+          <div class="feature">
+            <span class="feature-icon">💬</span>
+            <h3>Förhandla via chatt</h3>
+            <p>Anonym chatt och bud-system. Kontaktuppgifter visas först efter accept — ingen kringgår plattformen.</p>
+          </div>
+          <div class="feature">
+            <span class="feature-icon">📄</span>
+            <h3>Digital fraktsedel</h3>
+            <p>Föraren laddar upp fraktsedeln direkt. Allt sparas digitalt för bokföring och uppföljning.</p>
+          </div>
+        </div>
+
+        <div class="landing-footer">
+          © 2026 hittalast.se &middot; En tjänst från Östgöta Transport & Bemanning AB &middot;
+          <a href="#" id="landing-staff-bottom" style="color:rgba(255,255,255,.7)">Personalingång</a>
+        </div>
+      </div>
     </div>
-    <h2>Tillgängliga körningar (${open.length})</h2>
-    <div class="btn-row">
-      <label class="btn secondary" style="margin:0;display:inline-flex;align-items:center;gap:8px;cursor:pointer">
-        ↕ Sortera:
-        <select id="sortSelectPub" style="border:none;background:transparent;color:inherit;font:inherit;cursor:pointer">${sortOpts}</select>
-      </label>
-    </div>
-    <div class="card">
-      ${open.length === 0 ? `<div class="empty">Inga öppna körningar just nu.</div>`
-      : `<table>
-        <thead><tr><th>Från → Till</th><th>Lastning</th><th>Lossning</th><th>Krav</th><th>Pris</th><th></th></tr></thead>
-        <tbody>
-          ${open.map(b => `
-            <tr>
-              <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
-              <td>${esc(b.loadDate)} ${esc(b.loadTime || '')}</td>
-              <td>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</td>
-              <td>
-                ${b.adr ? '<span class="badge feature">ADR</span>' : ''}
-                ${b.tailLift ? '<span class="badge feature">Bakgavellift</span>' : ''}
-                ${b.openSide ? '<span class="badge feature">Öppningsbar sida</span>' : ''}
-                ${!b.adr && !b.tailLift && !b.openSide ? '<span class="muted">—</span>' : ''}
-              </td>
-              <td>${b.price == null ? '<span class="muted">Önskar prisförslag</span>' : fmtMoney(b.price)}</td>
-              <td><button class="ok needsLogin" data-id="${b.id}">✓ Acceptera</button></td>
-            </tr>`).join('')}
-        </tbody>
-      </table>`}
-    </div>
-  `);
-  document.querySelectorAll('.needsLogin').forEach(btn => {
-    btn.onclick = () => {
-      sessionStorage.setItem('postLoginRedirect', '/booking/' + btn.dataset.id);
-      if (confirm('Du måste logga in eller registrera dig för att acceptera körningen.\n\nKlicka OK för att registrera dig som åkare, Avbryt för att logga in.')) {
-        navigate('/register');
-      } else {
-        navigate('/login');
+  `;
+
+  // Countdown-timer uppdaterar var sekund
+  if (window._countdownTimer) clearInterval(window._countdownTimer);
+  window._countdownTimer = setInterval(() => {
+    const el = document.getElementById('countdown');
+    if (!el) { clearInterval(window._countdownTimer); return; }
+    el.innerHTML = renderCountdown();
+  }, 1000);
+
+  // Personalingång → login
+  const goLogin = e => { e.preventDefault(); navigate('/login'); };
+  document.getElementById('landing-staff').onclick = goLogin;
+  document.getElementById('landing-staff-bottom').onclick = goLogin;
+
+  // 5-klick på logotypen för dold admin-ingång
+  let logoClicks = 0;
+  document.getElementById('landing-logo-tap').onclick = () => {
+    logoClicks++;
+    if (logoClicks >= 5) navigate('/login');
+  };
+
+  // Submit handler
+  document.getElementById('waitlist-form').onsubmit = async e => {
+    e.preventDefault();
+    const btn = document.getElementById('signup-btn');
+    btn.disabled = true;
+    btn.textContent = 'Sparar…';
+    try {
+      const f = new FormData(e.target);
+      const email = (f.get('email') || '').toLowerCase().trim();
+      if (!email) throw new Error('E-post saknas');
+
+      // Kolla först om e-posten redan finns (case-insensitive)
+      const { error } = await sb.from('waitlist').insert({
+        email,
+        name: (f.get('name') || '').trim() || null,
+        company: (f.get('company') || '').trim() || null,
+        phone: (f.get('phone') || '').trim() || null,
+        role: f.get('role') || null,
+        fleet_size: f.get('fleet_size') || null,
+        source: 'landing',
+      });
+
+      if (error) {
+        if (/duplicate|unique/i.test(error.message)) {
+          throw new Error('Den här e-postadressen står redan på listan. Du hör av oss vid lansering!');
+        }
+        throw error;
       }
-    };
-  });
-  const ss = document.getElementById('sortSelectPub');
-  if (ss) ss.onchange = () => { setSortKey(ss.value); publicDashboard(); };
+
+      // Success-state
+      document.getElementById('signup-area').innerHTML = `
+        <div class="landing-success">
+          <h3>🎉 Du är inne!</h3>
+          <p>Vi har sparat din anmälan och hör av oss till <b>${esc(email)}</b> innan lansering den 1 juni.</p>
+        </div>`;
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Sätt mig på listan →';
+      alert(err.message || 'Något gick fel. Försök igen.');
+    }
+  };
 }
 
 // Sammanslagen dashboard: alla inloggade ser sina egna publicerade + tillgängliga + accepterade
