@@ -130,7 +130,7 @@
   .countdown-box{flex:1;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:14px 6px;text-align:center;backdrop-filter:blur(6px)}
   .countdown-val{font-size:clamp(22px,3.5vw,34px);font-weight:700;line-height:1;color:#fff}
   .countdown-lbl{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:rgba(255,255,255,.7);margin-top:4px}
-  .landing-features{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:80px;padding-top:48px;border-top:1px solid rgba(255,255,255,.12)}
+  .landing-features{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:80px;padding-top:48px;border-top:1px solid rgba(255,255,255,.12)}
   .feature{background:rgba(255,255,255,.06);padding:22px;border-radius:14px;border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(8px)}
   .feature h3{font-size:15px;margin:0 0 8px;color:#fff;font-weight:600}
   .feature p{font-size:13px;color:rgba(255,255,255,.78);line-height:1.5;margin:0}
@@ -140,7 +140,7 @@
     .landing-inner{padding:30px 16px}
     .landing-hero{grid-template-columns:1fr;gap:30px}
     .landing-nav{margin-bottom:30px}
-    .landing-features{grid-template-columns:1fr;gap:14px;margin-top:50px;padding-top:30px}
+    .landing-features{grid-template-columns:1fr 1fr;gap:14px;margin-top:50px;padding-top:30px}
     .countdown{gap:8px}
     .countdown-box{padding:10px 4px}
   }
@@ -1151,6 +1151,11 @@ async function publicDashboard() {
             <span class="feature-icon">📄</span>
             <h3>Digital fraktsedel</h3>
             <p>Föraren laddar upp fraktsedeln direkt. Allt sparas digitalt för bokföring och uppföljning.</p>
+          </div>
+          <div class="feature">
+            <span class="feature-icon">📦</span>
+            <h3>Erbjud last</h3>
+            <p>Publicera körningar och nå hundratals åkare direkt. Sätt eget pris eller låt åkaren föreslå.</p>
           </div>
         </div>
 
