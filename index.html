@@ -1,0 +1,3311 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>hittalast.se</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg:#f5f6f8; --card:#fff; --ink:#1a1d22; --muted:#6b7280; --line:#e5e7eb;
+    --brand:#1f5fb0; --brand-ink:#fff; --ok:#147a3d; --warn:#b45309; --danger:#b42318;
+    --open:#1f5fb0; --accepted:#147a3d; --completed:#4b5563;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+  header.topbar{background:#0f2847;color:#fff;padding:12px 20px;display:flex;align-items:center;gap:16px}
+  header.topbar h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.3px}
+  header.topbar nav{display:flex;gap:8px;margin-left:auto;align-items:center}
+  header.topbar nav a{color:#dbe4f0;text-decoration:none;padding:6px 10px;border-radius:6px}
+  header.topbar nav a:hover{background:rgba(255,255,255,.08)}
+  header.topbar .who{color:#9fb3cf;font-size:12px;margin-right:8px}
+  main{max-width:1100px;margin:24px auto;padding:0 20px}
+  h2{margin:0 0 16px;font-size:20px}
+  h3{margin:0 0 12px;font-size:15px;color:#374151}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:16px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .row-4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .fv-form h4{margin:10px 0 6px;font-size:13px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+  .fv-form h4:first-child{margin-top:0}
+  .fv-form .field{margin-bottom:8px}
+  .fv-form textarea{min-height:50px}
+  .fv-form .btn-row{margin-top:10px}
+  label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:500}
+  input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;font:inherit;background:#fff}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--brand);outline-offset:-1px;border-color:var(--brand)}
+  textarea{min-height:70px;resize:vertical}
+  .field{margin-bottom:12px}
+  .check{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .check input{width:auto}
+  button,.btn{background:var(--brand);color:var(--brand-ink);border:0;padding:9px 14px;border-radius:6px;cursor:pointer;font:inherit;font-weight:500}
+  button:hover,.btn:hover{filter:brightness(1.08)}
+  button.secondary,.btn.secondary{background:#fff;color:var(--ink);border:1px solid var(--line)}
+  button.ok{background:var(--ok)} button.warn{background:var(--warn)} button.danger{background:var(--danger)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:10px 8px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+  table.compact{font-size:13px;table-layout:auto}
+  table.compact th,table.compact td{padding:6px 6px;line-height:1.3}
+  table.compact .badge{font-size:10px;padding:1px 6px;margin:1px 2px 1px 0}
+  table.compact .icon-btn{padding:4px 8px;font-size:12px;line-height:1}
+  table.compact .nowrap{white-space:nowrap}
+  tr:hover td{background:#fafbfc;cursor:pointer}
+  .badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+  .badge.open{background:#e0ecff;color:var(--open)}
+  .badge.accepted{background:#d6f2e0;color:var(--accepted)}
+  .badge.completed{background:#e5e7eb;color:var(--completed)}
+  .badge.feature{background:#fff3e0;color:#b45309;margin-right:4px}
+  .muted{color:var(--muted)}
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px}
+  .tabs button{background:none;color:var(--muted);border-radius:0;border-bottom:2px solid transparent;padding:10px 14px;font-weight:500}
+  .tabs button.active{color:var(--brand);border-bottom-color:var(--brand)}
+  .empty{text-align:center;padding:40px;color:var(--muted)}
+  .auth-wrap{max-width:400px;margin:80px auto}
+  .auth-wrap .card{padding:28px}
+  .auth-wrap h2{text-align:center;margin-bottom:20px}
+  .auth-wrap .switch{text-align:center;margin-top:12px;font-size:13px}
+  .auth-wrap a{color:var(--brand);cursor:pointer;text-decoration:none}
+  .kv{display:grid;grid-template-columns:160px 1fr;gap:6px 16px;font-size:13px;margin:4px 0}
+  .kv dt{color:var(--muted)}
+  .kv dd{margin:0}
+  .chat{border:1px solid var(--line);border-radius:8px;background:#fafbfc;height:340px;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
+  .msg{max-width:72%;padding:8px 12px;border-radius:10px;font-size:13px;word-wrap:break-word}
+  .msg.me{align-self:flex-end;background:var(--brand);color:#fff}
+  .msg.them{align-self:flex-start;background:#fff;border:1px solid var(--line)}
+  .msg .who{font-size:11px;opacity:.75;margin-bottom:2px;font-weight:600}
+  .msg .ts{font-size:10px;opacity:.65;margin-top:2px}
+  .chat-input{display:flex;gap:8px;margin-top:10px}
+  .chat-input textarea{flex:1;min-height:42px;max-height:120px}
+  .chat-thread-list .thread-item{padding:10px;border:1px solid var(--line);border-radius:6px;margin-bottom:8px;cursor:pointer;background:#fff}
+  .chat-thread-list .thread-item.active{border-color:var(--brand);background:#f0f6ff}
+  .thumb{max-width:100%;max-height:240px;border-radius:6px;border:1px solid var(--line);display:block;margin-top:6px}
+  .toast{position:fixed;bottom:20px;right:20px;background:#1a1d22;color:#fff;padding:12px 18px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:1000;animation:slide .2s ease-out}
+  .toast.err{background:var(--danger)}
+  @keyframes slide{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+  .banner{padding:10px 14px;border-radius:6px;margin-bottom:12px;font-size:13px}
+  .banner.warn{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
+  .banner.info{background:#e0ecff;color:#1e40af;border:1px solid #93c5fd}
+  .banner.ok{background:#d6f2e0;color:var(--accepted);border:1px solid #86efac}
+  .banner.err{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px}
+  .stat .val{font-size:22px;font-weight:600}
+  .stat .lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-top:2px}
+  @media (max-width:700px){
+    .row,.row-3,.row-4{grid-template-columns:1fr 1fr}
+    .stats{grid-template-columns:1fr 1fr}
+    header.topbar nav a span.label{display:none}
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast-host"></div>
+
+<script>
+// =====================================================================
+// TRANSPORTPLATTFORM — MVP (single-file, IndexedDB)
+// Roller: åkare (kan både publicera och acceptera), chaufför, admin
+// Flöde: skapa körning → åkare accepterar → chatt → utfört → provision 8%
+// =====================================================================
+
+// --------- Supabase-anslutning ---------
+const SUPABASE_URL = 'https://xbcyhtozyyvnoyeqstru.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_eus87d1_edxEgfeiecCeRA_1TfFb-xK';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+});
+
+// Tabellnamn-mappning: gamla store-namn → Supabase-tabeller
+const TABLE_MAP = {
+  users: 'profiles',
+  bookings: 'bookings',
+  vehicles: 'vehicles',
+  drivers: 'drivers',
+  bids: 'bids',
+  messages: 'messages',
+  notifications: 'notifications',
+  freeVehicles: 'free_vehicles',
+};
+
+// camelCase ↔ snake_case helpers
+function camelToSnake(str) { return str.replace(/([A-Z])/g, '_$1').toLowerCase(); }
+function snakeToCamel(str) { return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase()); }
+function objToSnake(obj) {
+  if (!obj || typeof obj !== 'object' || obj instanceof Date || obj instanceof Blob) return obj;
+  if (Array.isArray(obj)) return obj;
+  const out = {};
+  for (const k in obj) {
+    if (obj[k] === undefined) continue;
+    if (k === 'passwordHash') continue;
+    out[camelToSnake(k)] = obj[k];
+  }
+  return out;
+}
+function objToCamel(obj) {
+  if (!obj || typeof obj !== 'object' || obj instanceof Date) return obj;
+  if (Array.isArray(obj)) return obj.map(objToCamel);
+  const out = {};
+  for (const k in obj) out[snakeToCamel(k)] = obj[k];
+  return out;
+}
+
+// DB-wrapper med Supabase. Bevarar gamla API:t (db.add/get/byIndex/put/del/all).
+const db = {
+  async all(table) {
+    const t = TABLE_MAP[table] || table;
+    const { data, error } = await sb.from(t).select('*');
+    if (error) { console.error('db.all', t, error); throw error; }
+    return (data || []).map(objToCamel);
+  },
+  async get(table, id) {
+    const t = TABLE_MAP[table] || table;
+    if (!id) return null;
+    const { data, error } = await sb.from(t).select('*').eq('id', id).maybeSingle();
+    if (error) { console.error('db.get', t, id, error); throw error; }
+    return data ? objToCamel(data) : null;
+  },
+  async byIndex(table, key, value) {
+    const t = TABLE_MAP[table] || table;
+    const col = camelToSnake(key);
+    if (value === undefined || value === null) return [];
+    const { data, error } = await sb.from(t).select('*').eq(col, value);
+    if (error) { console.error('db.byIndex', t, col, error); throw error; }
+    return (data || []).map(objToCamel);
+  },
+  async oneByIndex(table, key, value) {
+    const t = TABLE_MAP[table] || table;
+    const col = camelToSnake(key);
+    if (value === undefined || value === null) return null;
+    const { data, error } = await sb.from(t).select('*').eq(col, value).maybeSingle();
+    if (error) { console.error('db.oneByIndex', t, col, error); throw error; }
+    return data ? objToCamel(data) : null;
+  },
+  async add(table, obj) {
+    const t = TABLE_MAP[table] || table;
+    const snakeObj = objToSnake(obj);
+    delete snakeObj.id;
+    // Bilder läggs i Storage separat; här tar vi bort blob-fält som inte finns i databasen
+    if (snakeObj.booking_image instanceof Blob) delete snakeObj.booking_image;
+    if (snakeObj.proof_image instanceof Blob) delete snakeObj.proof_image;
+    // Mappa timestamp-nummer → ISO-strängar
+    for (const k of ['created_at','accepted_at','completed_at','assigned_at','updated_at','subscription_activated_at']) {
+      if (typeof snakeObj[k] === 'number') snakeObj[k] = new Date(snakeObj[k]).toISOString();
+    }
+    // 'read' boolean (var 0/1 i gamla koden)
+    if (typeof snakeObj.read === 'number') snakeObj.read = !!snakeObj.read;
+    const { data, error } = await sb.from(t).insert(snakeObj).select().single();
+    if (error) { console.error('db.add', t, error, snakeObj); throw error; }
+    return objToCamel(data);
+  },
+  async put(table, obj) {
+    const t = TABLE_MAP[table] || table;
+    const snakeObj = objToSnake(obj);
+    const id = snakeObj.id;
+    if (snakeObj.booking_image instanceof Blob) delete snakeObj.booking_image;
+    if (snakeObj.proof_image instanceof Blob) delete snakeObj.proof_image;
+    for (const k of ['created_at','accepted_at','completed_at','assigned_at','updated_at','subscription_activated_at']) {
+      if (typeof snakeObj[k] === 'number') snakeObj[k] = new Date(snakeObj[k]).toISOString();
+    }
+    if (typeof snakeObj.read === 'number') snakeObj.read = !!snakeObj.read;
+    const { data, error } = await sb.from(t).update(snakeObj).eq('id', id).select().single();
+    if (error) { console.error('db.put', t, id, error, snakeObj); throw error; }
+    return objToCamel(data);
+  },
+  async del(table, id) {
+    const t = TABLE_MAP[table] || table;
+    const { error } = await sb.from(t).delete().eq('id', id);
+    if (error) { console.error('db.del', t, id, error); throw error; }
+  },
+};
+
+// --------- Bilduppladdning till Supabase Storage ---------
+async function uploadImage(file, bucket = 'booking-images') {
+  if (!file || !file.name || !file.size) return null;
+  const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+  const path = `${(crypto.randomUUID && crypto.randomUUID()) || Date.now() + '-' + Math.random().toString(36).slice(2)}.${ext}`;
+  const { error } = await sb.storage.from(bucket).upload(path, file, { contentType: file.type || 'image/png' });
+  if (error) { console.error('uploadImage', error); throw error; }
+  const { data } = sb.storage.from(bucket).getPublicUrl(path);
+  return data.publicUrl;
+}
+
+// --------- Auth (Supabase) ---------
+let _sessionUser = null;
+function currentUser() { return _sessionUser; }
+function setCurrentUser(u) { _sessionUser = u; }
+
+async function refreshSession() {
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session && session.user) {
+      const profile = await db.get('users', session.user.id);
+      _sessionUser = profile ? { ...profile, email: session.user.email } : { id: session.user.id, email: session.user.email, role: 'akare', name: '' };
+    } else {
+      _sessionUser = null;
+    }
+  } catch (e) { console.error('refreshSession', e); _sessionUser = null; }
+}
+
+async function login(email, pwd) {
+  email = (email || '').trim().toLowerCase();
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: pwd });
+  if (error) throw new Error('Fel e-post eller lösenord');
+  await refreshSession();
+  return _sessionUser;
+}
+
+async function register(data) {
+  const email = (data.email || '').toLowerCase().trim();
+  const { data: result, error } = await sb.auth.signUp({
+    email,
+    password: data.pwd,
+    options: { data: { name: data.name || '', role: data.role || 'akare' } }
+  });
+  if (error) {
+    if (/already|registered/i.test(error.message)) throw new Error('E-post finns redan registrerad');
+    throw error;
+  }
+  // Vänta så triggern hinner skapa profilen, uppdatera sedan
+  await new Promise(r => setTimeout(r, 700));
+  if (result.user) {
+    await sb.from('profiles').update({
+      role: data.role || 'akare',
+      name: (data.name || '').trim(),
+      phone: (data.phone || '').trim(),
+      company: (data.company || '').trim(),
+      org_nr: (data.orgNr || '').trim(),
+      address: (data.address || '').trim(),
+      contact_person: (data.contactPerson || '').trim(),
+      invoice_recipient: (data.invoiceRecipient || '').trim(),
+      invoice_address: (data.invoiceAddress || '').trim(),
+      invoice_email: (data.invoiceEmail || '').trim(),
+      invoice_gln: (data.invoiceGln || '').trim(),
+      invoice_reference: (data.invoiceReference || '').trim(),
+      offices: data.offices || [],
+    }).eq('id', result.user.id);
+  }
+  await refreshSession();
+  return _sessionUser;
+}
+
+async function supabaseLogout() {
+  await sb.auth.signOut();
+  _sessionUser = null;
+}
+
+// --------- Backwards-compat: dessa körs inte längre men kallas vid startup ---------
+async function hashPwd() { return ''; }
+const SEED_VERSION = 'supabase';
+async function seedIfEmpty() { /* Supabase Auth hanterar konton */ }
+async function migrateLegacyRoles() { /* inte längre nödvändigt */ }
+async function cleanupOrphanedBookings() { /* RLS + FK cascade hanterar */ }
+
+// --------- Helpers ---------
+const ROLE_LABEL = {
+  akare: 'Åkare',
+  chauffor: 'Chaufför',
+  admin: 'Admin',
+};
+// Inloggade användare som både kan publicera och acceptera körningar
+function canAcceptAndPost(u) { return u && (u.role === 'akare' || u.role === 'admin'); }
+function isHauler(u) { return u && (u.role === 'akare' || u.role === 'admin'); }
+// --------- Bud + aviseringar ---------
+async function notify(userId, payload) {
+  if (!userId) return;
+  return db.add('notifications', {
+    userId,
+    type: payload.type,
+    bookingId: payload.bookingId || null,
+    bidId: payload.bidId || null,
+    message: payload.message,
+    read: false,
+  });
+}
+async function unreadCount(userId) {
+  if (!userId) return 0;
+  const { count, error } = await sb
+    .from('notifications')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('read', false);
+  if (error) { console.error('unreadCount', error); return 0; }
+  return count || 0;
+}
+async function bidsForBooking(bookingId) {
+  return db.byIndex('bids', 'bookingId', bookingId);
+}
+function latestBidAmount(bid) {
+  if (!bid || !bid.rounds || bid.rounds.length === 0) return null;
+  return bid.rounds[bid.rounds.length - 1].amount;
+}
+function latestBidBy(bid) {
+  if (!bid || !bid.rounds || bid.rounds.length === 0) return null;
+  return bid.rounds[bid.rounds.length - 1].by;
+}
+
+// --------- Smart text-parser för "Klistra in från mejl" ---------
+// Hanterar svenska transport-mejl OCH DHL/TMS-export-format (COLLECT FROM:, DELIVER TO:, WGT:, LDM:, Pickup:, Fix: osv).
+function parseBookingFromText(raw) {
+  const text = (raw || '').replace(/\r\n/g, '\n');
+  const result = {
+    fromLocation: '', toLocation: '',
+    fromPostal: '', toPostal: '',
+    loadDate: '', loadTime: '',
+    unloadDate: '', unloadTime: '',
+    weight: null, flm: null, pallets: null, price: null,
+    adr: false, tailLift: false, openSide: false,
+    description: '',
+  };
+
+  const normDate = (s) => {
+    if (!s) return '';
+    s = s.trim();
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) return s;
+    m = s.match(/^(\d{1,2})[/.\-](\d{1,2})(?:[/.\-](\d{2,4}))?$/);
+    if (m) {
+      const d = m[1].padStart(2, '0');
+      const mo = m[2].padStart(2, '0');
+      let y = m[3] || String(new Date().getFullYear());
+      if (y.length === 2) y = '20' + y;
+      return `${y}-${mo}-${d}`;
+    }
+    return '';
+  };
+
+  // Tid → HH:MM. Stöder "0700", "07:00", "07.00", "0700-1545" (tar första delen).
+  const normTime = (s) => {
+    if (!s) return '';
+    s = s.trim();
+    let m = s.match(/^(\d{1,2})[:\.](\d{2})/);
+    if (m) return `${m[1].padStart(2, '0')}:${m[2]}`;
+    m = s.match(/^(\d{2})(\d{2})\b/); // militärtid 0700
+    if (m) return `${m[1]}:${m[2]}`;
+    return '';
+  };
+
+  // Plocka stad + postnr ur ett textblock. Hanterar "SE-597 91 ÅTVIDABERG" och "11122 STOCKHOLM".
+  const extractPostalAndCity = (block) => {
+    if (!block) return { postal: '', city: '' };
+    // SE-prefix eller bara siffror, följt av stad
+    const m1 = block.match(/(?:SE[\s\-]*)?(\d{3}\s?\d{2})\s+([A-ZÅÄÖa-zåäö][A-ZÅÄÖa-zåäö\s\-]{1,30})/);
+    if (m1) {
+      const city = m1[2].split(/\n/)[0].trim().replace(/[,;].*$/, '').trim();
+      return { postal: m1[1].replace(/\s/g, ''), city };
+    }
+    // Bara postnr
+    const m2 = block.match(/(?:SE[\s\-]*)?(\d{3}\s?\d{2})/);
+    if (m2) return { postal: m2[1].replace(/\s/g, ''), city: '' };
+    return { postal: '', city: '' };
+  };
+
+  // Block-baserad extraktion: hämta texten mellan "COLLECT FROM:" / "DELIVER TO:" / "Pickup:" osv.
+  const blockBetween = (startRe, endResAlt) => {
+    const start = text.search(startRe);
+    if (start < 0) return '';
+    const after = text.slice(start);
+    const startMatch = after.match(startRe);
+    const startEnd = start + (startMatch ? startMatch[0].length : 0);
+    let earliest = text.length;
+    for (const re of endResAlt) {
+      const idx = text.slice(startEnd).search(re);
+      if (idx >= 0 && (startEnd + idx) < earliest) earliest = startEnd + idx;
+    }
+    return text.slice(startEnd, earliest).trim();
+  };
+
+  // FROM-block (COLLECT FROM / Lastas / Hämtas / Pickup-from / Avsändare / Från)
+  const fromStarters = /(?:COLLECT\s*FROM|LASTAS|H[ÄA]MTAS|PICKUP\s*FROM|AVS[ÄA]NDARE|FR[ÅA]N|LASTORT)\s*[:\-]/i;
+  const toStarters   = /(?:DELIVER\s*TO|LOSSAS|LEVERERAS|DELIVERY|MOTTAGARE|TILL|LOSSORT|DESTINATION)\s*[:\-]/i;
+  const breakers     = [
+    toStarters, /(?:^|\n)\s*Pickup\s*:/i, /(?:^|\n)\s*Fix\s*:/i,
+    /(?:^|\n)\s*WGT\s*:/i, /(?:^|\n)\s*LDM\s*:/i, /(?:^|\n)\s*Time\s*:/i,
+    /(?:^|\n)\s*OrderID/i, /(?:^|\n)\s*Load-Remarks/i, /(?:^|\n)\s*HAZ\s*:/i,
+    /(?:^|\n)\s*Cll\s*:/i, /(?:^|\n)\s*Consref/i, /(?:^|\n)\s*Ext\.Ref/i,
+    /(?:^|\n)\s*UnLoad-Remarks/i,
+  ];
+  const fromBlock = blockBetween(fromStarters, breakers);
+  const toBlock   = blockBetween(toStarters, breakers.filter(b => b !== toStarters));
+
+  if (fromBlock) {
+    const { postal, city } = extractPostalAndCity(fromBlock);
+    result.fromPostal = postal;
+    result.fromLocation = city;
+  }
+  if (toBlock) {
+    const { postal, city } = extractPostalAndCity(toBlock);
+    result.toPostal = postal;
+    result.toLocation = city;
+  }
+
+  // Fallback: "X → Y" / "X till Y" på en rad
+  if (!result.fromLocation || !result.toLocation) {
+    const r = text.match(/([A-ZÅÄÖ][A-Za-zÅÄÖåäö\s\-]{1,30}?)\s*(?:->|=>|→|–|—|-|\bto\b|\btill\b)\s*([A-ZÅÄÖ][A-Za-zÅÄÖåäö\s\-]{1,30})/);
+    if (r) {
+      if (!result.fromLocation) result.fromLocation = r[1].trim();
+      if (!result.toLocation) result.toLocation = r[2].trim();
+    }
+  }
+
+  // Sista utväg på postnr: alla 5-siffriga grupper i ordning
+  if (!result.fromPostal || !result.toPostal) {
+    const all = [...text.matchAll(/(?:SE[\s\-]*)?\b(\d{3}\s?\d{2})\b/g)].map(m => m[1].replace(/\s/g, ''));
+    if (!result.fromPostal && all[0]) result.fromPostal = all[0];
+    if (!result.toPostal && all[1]) result.toPostal = all[1];
+  }
+
+  // LASTNINGSDAG (Pickup, lastning, lastas, hämtas)
+  let dm = text.match(/(?:Pickup|lastning|lastdatum|lastas|h[äa]mtas|upphämtning)\s*[:\-]?\s*(\d{4}-\d{2}-\d{2}|\d{1,2}[/.\-]\d{1,2}(?:[/.\-]\d{2,4})?)/i);
+  if (dm) result.loadDate = normDate(dm[1]);
+
+  // LASTNINGSTID — fältet "Time:" i pickup-sektionen, eller normal tid
+  // I DHL-format: "Time:0700-1545" → 07:00
+  let tm = text.match(/Pickup[^\n]*?\n[^\n]*?Time\s*:\s*(\d{1,2}[:\.]\d{2}|\d{4})/i)
+        || text.match(/(?:lastning|lastas|h[äa]mtas|pickup)[^\n]*?(\d{1,2}[:\.]\d{2}|\b\d{4}\b)(?:\s*[-–]\s*\d{4})?/i);
+  if (tm) result.loadTime = normTime(tm[1]);
+
+  // LOSSNINGSDAG — Fix: i DHL, eller lossning/levereras
+  dm = text.match(/(?:DELIVER\s*TO[\s\S]*?Fix\s*:|Fix\s*:|lossning|lossdatum|lossas|levereras|delivery|leverans)\s*[:\-]?\s*(\d{4}-\d{2}-\d{2}|\d{1,2}[/.\-]\d{1,2}(?:[/.\-]\d{2,4})?)/i);
+  if (dm) result.unloadDate = normDate(dm[1]);
+  tm = text.match(/(?:DELIVER\s*TO[\s\S]*?Time\s*:|Fix[^\n]*?Time\s*:|lossning|lossas|levereras)[\s:]*?(\d{1,2}[:\.]\d{2}|\b\d{4}\b)/i);
+  if (tm && tm[1] !== '-') result.unloadTime = normTime(tm[1]);
+
+  // Fallback: alla datum i ordning
+  if (!result.loadDate || !result.unloadDate) {
+    const dates = [...text.matchAll(/(\d{4}-\d{2}-\d{2}|\d{1,2}[/.\-]\d{1,2}(?:[/.\-]\d{2,4})?)/g)]
+      .map(m => normDate(m[1])).filter(Boolean);
+    if (!result.loadDate && dates[0]) result.loadDate = dates[0];
+    if (!result.unloadDate && dates[1]) result.unloadDate = dates[1];
+  }
+
+  // VIKT (WGT eller "vikt: X kg" eller "X kg")
+  let m = text.match(/\bWGT\s*[:\-]?\s*([\d.,]+)/i)
+       || text.match(/(?:vikt|weight)\s*[:\-]?\s*([\d.,]+)\s*(?:kg|kilo)?/i)
+       || text.match(/([\d.,]+)\s*(?:kg|kilo)\b/i);
+  if (m) {
+    const v = parseFloat(m[1].replace(/\s/g, '').replace(',', '.'));
+    if (!isNaN(v) && v > 0) result.weight = v;
+  }
+
+  // FLM / LDM (flakmeter / loading meter)
+  m = text.match(/\b(?:flm|ldm|flakmeter|loading\s*meter)\s*[:\-]?\s*([\d.,]+)/i)
+   || text.match(/([\d.,]+)\s*\b(?:flm|ldm|flakmeter|lm)\b/i);
+  if (m) {
+    const v = parseFloat(m[1].replace(/\s/g, '').replace(',', '.'));
+    if (!isNaN(v) && v > 0) result.flm = v;
+  }
+
+  // ANTAL PALL / Cll (colli)
+  m = text.match(/(?:antal\s*pall|pallets?)\s*[:\-]?\s*(\d+)/i)
+   || text.match(/\bCll\s*[:\-]?\s*(\d+)/i)
+   || text.match(/\b(\d+)\s*(?:st\s*)?(?:pall(?:ar|etter|s)?|colli|kolli)\b/i)
+   || text.match(/\bpall\s*[:\-]?\s*(\d+)/i);
+  if (m) {
+    const v = parseInt(m[1], 10);
+    if (!isNaN(v) && v > 0) result.pallets = v;
+  }
+
+  // PRIS
+  m = text.match(/(?:pris|price|kostnad)\s*[:\-]?\s*([\d\s.,]+)\s*(?:kr|sek)/i)
+   || text.match(/([\d\s.,]+)\s*(?:kr|sek)\b/i);
+  if (m) {
+    const v = parseFloat(m[1].replace(/\s/g, '').replace(',', '.'));
+    if (!isNaN(v) && v > 0) result.price = Math.round(v);
+  }
+
+  // FORDONSKRAV — DHL har "HAZ: Yes/No" för farligt gods
+  result.adr = /\bADR\b/i.test(text) || /\bHAZ\s*:\s*Yes\b/i.test(text);
+  result.tailLift = /(bakgavellift|baklift|tail\s*lift)/i.test(text);
+  result.openSide = /(öppningsbar|oppningsbar|open\s*side|capell|gardin|sidogardiner)/i.test(text);
+
+  // BESKRIVNING — kombinera ev. nyttig info: ref, remarks osv.
+  const descParts = [];
+  m = text.match(/(?:beskrivning|kommentar|info|gods|last|Load-Remarks|UnLoad-Remarks)\s*[:\-]\s*([^\n]+)/i);
+  if (m && m[1].trim()) descParts.push(m[1].trim());
+  m = text.match(/Consref\s*[:\-]?\s*([^\n]+)/i);
+  if (m && m[1].trim()) descParts.push('Ref: ' + m[1].trim());
+  m = text.match(/Ext\.Ref\s*[:\-]?\s*([^\n]+)/i);
+  if (m && m[1].trim()) descParts.push('Ext.Ref: ' + m[1].trim());
+  if (descParts.length) result.description = descParts.join(' · ').slice(0, 240);
+
+  return result;
+}
+
+async function migrateLegacyRoles() {
+  if (localStorage.getItem('legacyRolesMigrated') === '1') return;
+  const users = await db.all('users');
+  let changed = 0;
+  for (const x of users) {
+    if (x.role === 'transportkopare') {
+      x.role = 'akare';
+      await db.put('users', x);
+      changed++;
+    }
+  }
+  localStorage.setItem('legacyRolesMigrated', '1');
+  if (changed > 0) console.log(`[migrate] Migrerade ${changed} transportkopare → akare`);
+}
+
+async function cleanupOrphanedBookings() {
+  if (localStorage.getItem('orphanCleanupDone') === '1') return;
+  const users = await db.all('users');
+  const validIds = new Set(users.map(u => u.id));
+  const bookings = await db.all('bookings');
+  let removed = 0;
+  for (const b of bookings) {
+    const buyerMissing = !validIds.has(b.buyerId);
+    const haulerMissing = b.haulerId && !validIds.has(b.haulerId);
+    if (buyerMissing || haulerMissing) {
+      const msgs = await db.byIndex('messages', 'bookingId', b.id);
+      for (const m of msgs) await db.del('messages', m.id);
+      await db.del('bookings', b.id);
+      removed++;
+    }
+  }
+  localStorage.setItem('orphanCleanupDone', '1');
+  if (removed > 0) console.log(`[cleanup] Tog bort ${removed} bokningar med ogiltig uppdragsgivare/åkare`);
+}
+const STATUS_LABEL = { open: 'Öppen', accepted: 'Accepterad', completed: 'Utförd' };
+
+const COMMISSION_RATE = 0;
+const SHOW_COMMISSION_TO_USERS = false;
+function commissionFor(price) { return 0; }
+function nettoFor(price) {
+  if (price == null || isNaN(price)) return 0;
+  return Math.round(price * 100) / 100;
+}
+function canSeeCommission(u) { return false; }
+
+// --------- Prenumerationsmodell ---------
+// 1-5 bilar: 995 kr / mån (exkl moms)
+// 6-15 bilar: 1 995 kr / mån
+// 16-30+ bilar: 2 495 kr / mån
+const VAT_RATE = 0.25;
+const TRIAL_DAYS = 14;
+const DEFAULT_PRICING_TIERS = [
+  { min: 1,  max: 5,  price: 995  },
+  { min: 6,  max: 15, price: 1995 },
+  { min: 16, max: 30, price: 2495 },
+];
+let PRICING_TIERS = loadPricingTiers();
+
+function loadPricingTiers() {
+  try {
+    const raw = localStorage.getItem('pricingTiers');
+    if (!raw) return DEFAULT_PRICING_TIERS.map(t => ({ ...t }));
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_PRICING_TIERS.map(t => ({ ...t }));
+    return parsed.filter(t => t && typeof t.min === 'number' && typeof t.max === 'number' && typeof t.price === 'number');
+  } catch { return DEFAULT_PRICING_TIERS.map(t => ({ ...t })); }
+}
+function savePricingTiers(tiers) {
+  const cleaned = tiers
+    .map(t => ({ min: Number(t.min), max: Number(t.max), price: Number(t.price) }))
+    .filter(t => !isNaN(t.min) && !isNaN(t.max) && !isNaN(t.price) && t.min > 0 && t.max >= t.min && t.price >= 0)
+    .sort((a, b) => a.min - b.min);
+  if (cleaned.length === 0) throw new Error('Minst en prisnivå krävs');
+  localStorage.setItem('pricingTiers', JSON.stringify(cleaned));
+  PRICING_TIERS = cleaned;
+}
+function resetPricingTiers() {
+  localStorage.removeItem('pricingTiers');
+  PRICING_TIERS = DEFAULT_PRICING_TIERS.map(t => ({ ...t }));
+}
+function tierFor(vehicleCount) {
+  if (!vehicleCount || vehicleCount < 1) return null;
+  const t = PRICING_TIERS.find(t => vehicleCount >= t.min && vehicleCount <= t.max);
+  return t || PRICING_TIERS[PRICING_TIERS.length - 1]; // 30+ → högsta tariffen
+}
+function monthlyCostFor(vehicleCount, user) {
+  if (user && user.customMonthlyPrice != null && user.customMonthlyPrice >= 0) {
+    return Number(user.customMonthlyPrice);
+  }
+  const t = tierFor(vehicleCount);
+  return t ? t.price : 0;
+}
+function tierLabelFor(vehicleCount) {
+  const t = tierFor(vehicleCount);
+  if (!t) return 'Ingen bil registrerad';
+  return `${t.min}–${t.max === 30 ? '30+' : t.max} bilar`;
+}
+function trialEndsAt(user) {
+  if (!user || !user.createdAt) return 0;
+  return user.createdAt + TRIAL_DAYS * 86400000;
+}
+function trialDaysLeft(user) {
+  const end = trialEndsAt(user);
+  if (!end) return 0;
+  const ms = end - Date.now();
+  return Math.max(0, Math.ceil(ms / 86400000));
+}
+function isTrialActive(user) {
+  return trialDaysLeft(user) > 0;
+}
+function subscriptionStatusFor(user) {
+  if (!user) return 'none';
+  if (user.subscriptionActive === true) return 'paid';
+  if (isTrialActive(user)) return 'trial';
+  return 'expired';
+}
+async function vehicleCountFor(haulerId) {
+  const list = await db.byIndex('vehicles', 'haulerId', haulerId);
+  return list.length;
+}
+
+function fmtMoney(n) {
+  if (n == null || isNaN(n)) return '—';
+  return (Math.round(n * 100) / 100).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' kr';
+}
+
+function fmtDate(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return d.toLocaleDateString('sv-SE') + ' ' + d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Tar bort telefonnummer och e-post från fri text (används i chatt innan accept)
+// Anti-kringgående: regex för e-post, telefon, företagsformer, websidor
+const COMPANY_RE = /\b(?:[A-ZÅÄÖ][\wÅÄÖåäö&'.\-]{1,}\s+){0,3}(?:AB|Aktiebolag|HB|KB|AS|A\/S|ApS|Oy|Inc|Ltd|GmbH|Åkeri|Transport|Logistik|Speditions?)\b/g;
+const URL_RE = /\b(?:https?:\/\/|www\.)\S+|\b[\w-]+\.(?:se|com|net|org|nu|eu|dk|no|fi)\b/gi;
+const EMAIL_RE = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g;
+const PHONE_RE = /(\+?\d[\d\s\-()]{5,}\d)/g;
+function detectContact(text, knownNames = []) {
+  if (!text) return { hits: [], masked: text };
+  let masked = text;
+  const hits = [];
+  if (EMAIL_RE.test(text))   hits.push('e-post');
+  if (PHONE_RE.test(text))   hits.push('telefon');
+  if (URL_RE.test(text))     hits.push('webbadress');
+  if (COMPANY_RE.test(text)) hits.push('företagsnamn');
+  for (const n of knownNames) {
+    if (!n) continue;
+    const re = new RegExp('\\b' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+    if (re.test(text)) { hits.push('namn'); break; }
+  }
+  // återanvänd regexarna för maskning (måste skapa nya pga global state)
+  masked = masked.replace(/\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g, '[***]');
+  masked = masked.replace(/(\+?\d[\d\s\-()]{5,}\d)/g, m => m.replace(/\D/g, '').length >= 6 ? '[***]' : m);
+  masked = masked.replace(/\b(?:https?:\/\/|www\.)\S+|\b[\w-]+\.(?:se|com|net|org|nu|eu|dk|no|fi)\b/gi, '[***]');
+  masked = masked.replace(/\b(?:[A-ZÅÄÖ][\wÅÄÖåäö&'.\-]{1,}\s+){0,3}(?:AB|Aktiebolag|HB|KB|AS|A\/S|ApS|Oy|Inc|Ltd|GmbH|Åkeri|Transport|Logistik|Speditions?)\b/g, '[***]');
+  for (const n of knownNames) {
+    if (!n) continue;
+    const re = new RegExp('\\b' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
+    masked = masked.replace(re, '[***]');
+  }
+  return { hits: [...new Set(hits)], masked };
+}
+function redactContact(text) { return detectContact(text).masked; }
+
+function toast(msg, type) {
+  const host = document.getElementById('toast-host');
+  const el = document.createElement('div');
+  el.className = 'toast' + (type === 'err' ? ' err' : '');
+  el.textContent = msg;
+  host.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+function blobToUrl(blobOrUrl) {
+  if (!blobOrUrl) return null;
+  if (typeof blobOrUrl === 'string') return blobOrUrl;
+  if (blobOrUrl instanceof Blob) return URL.createObjectURL(blobOrUrl);
+  return null;
+}
+
+// --------- Router (hash-baserad) ---------
+const routes = [];
+function route(pattern, handler) { routes.push({ pattern, handler }); }
+
+function navigate(path) {
+  if (location.hash.slice(1) === path) render();
+  else location.hash = path;
+}
+
+async function render() {
+  const hash = location.hash.slice(1) || '/';
+  const user = currentUser();
+  _unreadCache = user ? await unreadCount(user.id) : 0;
+
+  // Publika rutter (utan inlogg)
+  const publicHashes = ['/', '/public', '/login', '/register'];
+  const isPublicBooking = /^\/booking\/[\w-]+$/.test(hash);
+  if (!user && !publicHashes.includes(hash) && !isPublicBooking) {
+    return navigate('/');
+  }
+  if (user && (hash === '/login' || hash === '/register')) {
+    return navigate('/');
+  }
+
+  for (const r of routes) {
+    const m = hash.match(r.pattern);
+    if (m) {
+      try { await r.handler(m, user); }
+      catch (e) { console.error(e); toast(e.message || 'Fel uppstod', 'err'); }
+      return;
+    }
+  }
+  document.getElementById('app').innerHTML = `<main><div class="card"><h2>Sidan hittades inte</h2><a href="#/">Gå till start</a></div></main>`;
+}
+
+window.addEventListener('hashchange', render);
+
+// Periodisk koll för nya aviseringar
+setInterval(async () => {
+  const u = currentUser();
+  if (!u) return;
+  const count = await unreadCount(u.id);
+  if (count !== _unreadCache) {
+    _unreadCache = count;
+    const oldCount = Number((document.querySelector('header.topbar nav a[href="#/notifications"] span') || {}).textContent) || 0;
+    if (count > oldCount) toast(`Du har ${count - oldCount} ny${count - oldCount === 1 ? '' : 'a'} avisering${count - oldCount === 1 ? '' : 'ar'}`);
+    render();
+  }
+}, 15000);
+
+// --------- Layout: topbar + main ---------
+let _unreadCache = 0;
+function layout(inner) {
+  const u = currentUser();
+  const navLinks = u ? roleNav(u) : publicNav();
+  const unread = u ? _unreadCache : 0;
+  const bell = u ? `<a href="#/notifications" title="Aviseringar" style="position:relative;margin:0 6px">🔔${unread>0?`<span style="position:absolute;top:-6px;right:-10px;background:#e11;color:#fff;border-radius:10px;padding:1px 6px;font-size:11px">${unread}</span>`:''}</a>` : '';
+  return `
+    <header class="topbar">
+      <h1>🚚 hittalast.se</h1>
+      <nav>
+        ${navLinks}
+        ${bell}
+        ${u ? `<span class="who">${esc(u.name)} · ${ROLE_LABEL[u.role]}</span>
+               <a href="#" id="logout-link"><span class="label">Logga ut</span> ↩</a>` : ''}
+      </nav>
+    </header>
+    <main>${inner}</main>
+  `;
+}
+
+function roleNav(u) {
+  const base = `<a href="#/"><span class="label">Dashboard</span> 🏠</a>`;
+  if (u.role === 'chauffor') return base;
+  let nav = base + `<a href="#/available"><span class="label">Tillgängliga körningar</span> 📋</a>` + `<a href="#/new"><span class="label">Ny körning</span> ➕</a>` + `<a href="#/free-vehicles"><span class="label">Lediga bilar</span> 🚚</a>`;
+  if (isHauler(u)) nav += `<a href="#/vehicles"><span class="label">Mina bilar</span> 🚛</a>` + `<a href="#/drivers"><span class="label">Chaufförer</span> 👷</a>`;
+  nav += `<a href="#/stats"><span class="label">Statistik</span> 📊</a>`;
+  if (u.role === 'akare') nav += `<a href="#/subscription"><span class="label">Prenumeration</span> 💳</a>`;
+  if (u.role === 'admin') nav += `<a href="#/users"><span class="label">Användare</span> 👥</a><a href="#/settlement"><span class="label">Prenumerationer</span> 💼</a>`;
+  return nav;
+}
+
+function publicNav() {
+  return `<a href="#/"><span class="label">Tillgängliga körningar</span> 📋</a>
+          <a href="#/login" class="btn" style="padding:6px 12px">Logga in</a>
+          <a href="#/register" class="btn secondary" style="padding:6px 12px">Registrera</a>`;
+}
+
+function mount(html) {
+  document.getElementById('app').innerHTML = layout(html);
+  const lo = document.getElementById('logout-link');
+  if (lo) lo.onclick = async e => { e.preventDefault(); await supabaseLogout(); navigate('/login'); };
+}
+
+// --------- Vyer: Auth ---------
+route(/^\/login$/, async () => {
+  document.getElementById('app').innerHTML = `
+    <div class="auth-wrap">
+      <div class="card">
+        <h2>🚚 hittalast.se</h2>
+        <form id="loginForm">
+          <div class="field"><label>E-post</label><input name="email" type="email" required autocomplete="username"></div>
+          <div class="field"><label>Lösenord</label><input name="pwd" type="password" required autocomplete="current-password"></div>
+          <button type="submit" style="width:100%">Logga in</button>
+        </form>
+        <div class="switch">Inget konto? <a onclick="location.hash='#/register'">Registrera dig</a></div>
+        <div class="banner info" style="margin-top:16px;font-size:12px">
+          <b>Demo-konton</b> (lösen: <code>demo</code>):<br>
+          admin@demo.se · akare1@demo.se · akare2@demo.se
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('loginForm').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      await login(f.get('email'), f.get('pwd'));
+      navigate('/');
+    } catch (err) { toast(err.message, 'err'); }
+  };
+});
+
+route(/^\/register$/, async () => {
+  document.getElementById('app').innerHTML = `
+    <div class="auth-wrap">
+      <div class="card">
+        <h2>Registrera konto</h2>
+        <p class="muted" style="margin-top:-8px">Som åkare på hittalast.se kan du både publicera transporter och acceptera andras uppdrag.</p>
+        <form id="regForm">
+          <h3 style="margin-top:0;font-size:14px">Företagsuppgifter</h3>
+          <div class="field"><label>Kontaktperson (namn)</label><input name="name" required></div>
+          <div class="field"><label>Företagsnamn</label><input name="company" required></div>
+          <div class="field"><label>E-post</label><input name="email" type="email" required></div>
+          <div class="field"><label>Telefon</label><input name="phone" required placeholder="070-123 45 67"></div>
+          <div class="field"><label>Organisationsnummer</label><input name="orgNr" required placeholder="556677-8899"></div>
+          <div class="field"><label>Adress (huvudkontor)</label><input name="address" placeholder="Storgatan 1, 581 22 Linköping"></div>
+          <div class="field"><label>Övriga kontor (en per rad, valfritt)</label><textarea name="offices" rows="2" placeholder="Norrköping&#10;Jönköping"></textarea></div>
+
+          <h3 style="font-size:14px;margin-top:14px">📄 Faktureringsuppgifter</h3>
+          <div class="field"><label>Faktura-mottagarens namn / referens</label><input name="invoiceRecipient" placeholder="Ekonomiavdelningen / Anna Andersson"></div>
+          <div class="field"><label>Faktureringsadress</label><input name="invoiceAddress" required placeholder="Box 123, 581 22 Linköping"></div>
+          <div class="field"><label>Fakturera till e-post</label><input name="invoiceEmail" type="email" placeholder="faktura@dittforetag.se"></div>
+          <div class="field"><label>GLN / Peppol-ID (e-faktura, valfritt)</label><input name="invoiceGln" placeholder="7301234567890"></div>
+          <div class="field"><label>Er referens / kostnadsställe (valfritt)</label><input name="invoiceReference" placeholder="t.ex. KS-101"></div>
+
+          <div class="field" style="margin-top:14px"><label>Lösenord</label><input name="pwd" type="password" required minlength="4"></div>
+          <button type="submit" style="width:100%">Skapa konto</button>
+        </form>
+        <div class="switch">Har redan konto? <a onclick="location.hash='#/login'">Logga in</a></div>
+      </div>
+    </div>`;
+  document.getElementById('regForm').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const data = {
+      email: f.get('email'), pwd: f.get('pwd'), role: 'akare',
+      name: f.get('name'), phone: f.get('phone'), company: f.get('company'),
+      orgNr: f.get('orgNr') || '',
+      address: f.get('address') || '',
+      contactPerson: f.get('name') || '',
+      invoiceRecipient: f.get('invoiceRecipient') || '',
+      invoiceAddress: f.get('invoiceAddress') || '',
+      invoiceEmail: f.get('invoiceEmail') || '',
+      invoiceGln: f.get('invoiceGln') || '',
+      invoiceReference: f.get('invoiceReference') || '',
+      offices: (f.get('offices') || '').split('\n').map(s => s.trim()).filter(Boolean),
+    };
+    try {
+      await register(data);
+      navigate('/');
+    } catch (err) { toast(err.message, 'err'); }
+  };
+});
+
+// --------- Dashboard-entry (skickar till rätt roll-dashboard, eller publik vy) ---------
+route(/^\/$/, async (_m, u) => {
+  if (!u) return publicDashboard();
+  if (u.role === 'chauffor') return driverDashboard(u);
+  if (u.role === 'admin') return adminDashboard(u);
+  // Sammanslagen vy för åkare: kan både publicera och acceptera
+  return unifiedDashboard(u);
+});
+
+// --------- Publik vy (utan inlogg) ---------
+async function publicDashboard() {
+  const open = await db.byIndex('bookings', 'status', 'open');
+  applySort(open);
+  const sortKey = getSortKey();
+  const sortOpts = Object.entries(SORT_OPTIONS).map(([k,v]) => `<option value="${k}" ${k===sortKey?'selected':''}>${v.label}</option>`).join('');
+  mount(`
+    <div class="banner info">
+      <b>Välkommen till hittalast.se!</b> Här ser du alla tillgängliga körningar.
+      <a href="#/login">Logga in</a> eller <a href="#/register">registrera dig</a> för att acceptera uppdrag eller publicera egna körningar.
+    </div>
+    <h2>Tillgängliga körningar (${open.length})</h2>
+    <div class="btn-row">
+      <label class="btn secondary" style="margin:0;display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+        ↕ Sortera:
+        <select id="sortSelectPub" style="border:none;background:transparent;color:inherit;font:inherit;cursor:pointer">${sortOpts}</select>
+      </label>
+    </div>
+    <div class="card">
+      ${open.length === 0 ? `<div class="empty">Inga öppna körningar just nu.</div>`
+      : `<table>
+        <thead><tr><th>Från → Till</th><th>Lastning</th><th>Lossning</th><th>Krav</th><th>Pris</th><th></th></tr></thead>
+        <tbody>
+          ${open.map(b => `
+            <tr>
+              <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
+              <td>${esc(b.loadDate)} ${esc(b.loadTime || '')}</td>
+              <td>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</td>
+              <td>
+                ${b.adr ? '<span class="badge feature">ADR</span>' : ''}
+                ${b.tailLift ? '<span class="badge feature">Bakgavellift</span>' : ''}
+                ${b.openSide ? '<span class="badge feature">Öppningsbar sida</span>' : ''}
+                ${!b.adr && !b.tailLift && !b.openSide ? '<span class="muted">—</span>' : ''}
+              </td>
+              <td>${b.price == null ? '<span class="muted">Önskar prisförslag</span>' : fmtMoney(b.price)}</td>
+              <td><button class="ok needsLogin" data-id="${b.id}">✓ Acceptera</button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`}
+    </div>
+  `);
+  document.querySelectorAll('.needsLogin').forEach(btn => {
+    btn.onclick = () => {
+      sessionStorage.setItem('postLoginRedirect', '/booking/' + btn.dataset.id);
+      if (confirm('Du måste logga in eller registrera dig för att acceptera körningen.\n\nKlicka OK för att registrera dig som åkare, Avbryt för att logga in.')) {
+        navigate('/register');
+      } else {
+        navigate('/login');
+      }
+    };
+  });
+  const ss = document.getElementById('sortSelectPub');
+  if (ss) ss.onchange = () => { setSortKey(ss.value); publicDashboard(); };
+}
+
+// Sammanslagen dashboard: alla inloggade ser sina egna publicerade + tillgängliga + accepterade
+async function unifiedDashboard(u) {
+  const allMine = await db.byIndex('bookings', 'buyerId', u.id);
+  const accepted = await db.byIndex('bookings', 'haulerId', u.id);
+  const open = await db.byIndex('bookings', 'status', 'open');
+  const available = open.filter(b => b.buyerId !== u.id);
+
+  applySort(allMine);
+  applySort(available);
+  accepted.sort((a, b) => (b.acceptedAt || 0) - (a.acceptedAt || 0));
+
+  const sortKey = getSortKey();
+  const sortOpts = Object.entries(SORT_OPTIONS).map(([k,v]) => `<option value="${k}" ${k===sortKey?'selected':''}>${v.label}</option>`).join('');
+
+  const myByStatus = { open: [], accepted: [], completed: [] };
+  allMine.forEach(b => myByStatus[b.status]?.push(b));
+
+  const accByStatus = { accepted: [], completed: [] };
+  accepted.forEach(b => accByStatus[b.status]?.push(b));
+  const totalEarned = accByStatus.completed.reduce((s, b) => s + ((b.price || 0) - (b.commission || 0)), 0);
+
+  // Aktiva publicerade (ej utförda) — dessa visas under "Mina publicerade körningar"
+  const myActive = allMine.filter(b => b.status !== 'completed');
+  // Aktiva accepterade (ej utförda) — dessa visas under "Uppdrag jag accepterat"
+  const accAcceptedActive = accepted.filter(b => b.status !== 'completed');
+  // Alla utförda (egna publicerade + egna accepterade) — dedupliceras via id
+  const completedSet = new Map();
+  for (const b of myByStatus.completed) completedSet.set(b.id, b);
+  for (const b of accByStatus.completed) completedSet.set(b.id, b);
+  const myCompletedAll = [...completedSet.values()].sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+
+  // Trial-banner för åkare
+  let trialBanner = '';
+  if (u.role === 'akare') {
+    const fresh = await db.get('users', u.id);
+    const status = subscriptionStatusFor(fresh);
+    const days = trialDaysLeft(fresh);
+    if (status === 'trial') {
+      trialBanner = `<div class="banner info">🎁 Du har <b>${days} ${days === 1 ? 'dag' : 'dagar'} kvar</b> av din kostnadsfria provperiod (14 dagar). <a href="#/subscription">Se prislista →</a></div>`;
+    } else if (status === 'expired') {
+      trialBanner = `<div class="banner err">⚠ Din provperiod har gått ut. <a href="#/subscription">Aktivera prenumeration →</a></div>`;
+    }
+  }
+
+  mount(`
+    <h2>Hej ${esc(u.name)}!</h2>
+    ${trialBanner}
+    <div class="btn-row">
+      <a class="btn" href="#/new">➕ Skapa ny körning</a>
+      ${allMine.some(b => b.sourceRef) ? `<button class="btn danger" id="clearImportedBtn" style="margin:0">🗑 Rensa importerade (${allMine.filter(b => b.sourceRef).length})</button>` : ''}
+      <label class="btn secondary" style="margin:0;display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+        ↕ Sortera:
+        <select id="sortSelect" style="border:none;background:transparent;color:inherit;font:inherit;cursor:pointer">${sortOpts}</select>
+      </label>
+    </div>
+    <div class="stats">
+      <a class="stat" href="#/mine/open" style="text-decoration:none;color:inherit;cursor:pointer"><div class="val">${myByStatus.open.length}</div><div class="lbl">Mina öppna</div></a>
+      <a class="stat" href="#/mine/active" style="text-decoration:none;color:inherit;cursor:pointer"><div class="val">${myByStatus.accepted.length + accByStatus.accepted.length}</div><div class="lbl">Pågående uppdrag</div></a>
+      <a class="stat" href="#/mine/completed" style="text-decoration:none;color:inherit;cursor:pointer"><div class="val">${myCompletedAll.length}</div><div class="lbl">Mina utförda</div></a>
+      <a class="stat" href="#/mine/earned" style="text-decoration:none;color:inherit;cursor:pointer"><div class="val">${fmtMoney(totalEarned)}</div><div class="lbl">Netto utförda</div></a>
+    </div>
+
+    <div class="card">
+      <h3>📋 Tillgängliga körningar (${available.length})</h3>
+      <div class="muted" style="margin-bottom:8px">Acceptera ett uppdrag — kontaktuppgifter visas efter accept.</div>
+      ${available.length === 0 ? `<div class="empty">Inga öppna körningar från andra just nu.</div>` : renderBookingTable(available, 'hauler')}
+    </div>
+
+    <div class="card">
+      <h3>📝 Mina publicerade körningar (${myActive.length})</h3>
+      <div class="muted" style="margin-bottom:8px;font-size:12px">Aktuella uppdrag (öppna och pågående). Utförda hamnar längre ner.</div>
+      ${myActive.length === 0 ? `<div class="empty">Du har inga aktiva publicerade körningar.</div>` : renderBookingTable(myActive, 'buyer')}
+    </div>
+
+    ${accAcceptedActive.length > 0 ? `<div class="card">
+      <h3>🚛 Uppdrag jag accepterat (${accAcceptedActive.length})</h3>
+      ${renderBookingTable(accAcceptedActive, 'hauler')}
+    </div>` : ''}
+  `);
+  bindRowClicks();
+  bindClearImported(u);
+  const ss = document.getElementById('sortSelect');
+  if (ss) ss.onchange = () => { setSortKey(ss.value); unifiedDashboard(u); };
+}
+
+// --------- Mina körningar (filtrerad vy från klick på stat-rutorna) ---------
+route(/^\/mine\/(open|active|completed|earned)$/, async (m, u) => {
+  if (!u || u.role === 'chauffor') return navigate('/');
+  const filter = m[1];
+  const allMine = await db.byIndex('bookings', 'buyerId', u.id);
+  const accepted = await db.byIndex('bookings', 'haulerId', u.id);
+
+  let list = [];
+  let title = '';
+  let helper = '';
+  let perspective = 'buyer';
+
+  if (filter === 'open') {
+    list = allMine.filter(b => b.status === 'open');
+    title = '📂 Mina öppna körningar';
+    helper = 'Körningar du publicerat och som väntar på åkare.';
+    list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  } else if (filter === 'active') {
+    const myPending = allMine.filter(b => b.status === 'accepted');
+    const accPending = accepted.filter(b => b.status === 'accepted');
+    const seen = new Map();
+    for (const b of [...myPending, ...accPending]) seen.set(b.id, b);
+    list = [...seen.values()].sort((a, b) => (b.acceptedAt || 0) - (a.acceptedAt || 0));
+    title = '🚛 Pågående uppdrag';
+    helper = 'Accepterade uppdrag som ännu inte är slutförda — både dina publicerade och de du själv kör.';
+  } else if (filter === 'completed') {
+    const myDone = allMine.filter(b => b.status === 'completed');
+    const accDone = accepted.filter(b => b.status === 'completed');
+    const seen = new Map();
+    for (const b of [...myDone, ...accDone]) seen.set(b.id, b);
+    list = [...seen.values()].sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+    title = '✅ Mina utförda körningar';
+    helper = 'Körningar du publicerat eller utfört som markerats som klara.';
+  } else if (filter === 'earned') {
+    list = accepted.filter(b => b.status === 'completed');
+    list.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+    title = '💰 Netto utförda (intjänat)';
+    const total = list.reduce((s, b) => s + ((b.price || 0) - (b.commission || 0)), 0);
+    helper = `Totalt intjänat: <b>${fmtMoney(total)}</b> från ${list.length} utförd${list.length === 1 ? '' : 'a'} uppdrag som åkare.`;
+    perspective = 'hauler';
+  }
+
+  mount(`
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <a href="#/" class="btn secondary">← Tillbaka till dashboard</a>
+      <h2 style="margin:0">${title}</h2>
+    </div>
+    <div class="muted" style="margin-bottom:12px">${helper}</div>
+    <div class="card">
+      ${list.length === 0 ? `<div class="empty">Inga körningar i denna kategori.</div>` : renderBookingTable(list, perspective)}
+    </div>
+  `);
+  bindRowClicks();
+});
+
+async function driverDashboard(u) {
+  const drv = await db.oneByIndex('drivers', 'email', u.email);
+  if (!drv) {
+    mount(`<h2>Inget chaufförskonto kopplat</h2><div class="banner warn">Din användare är inte länkad till ett chaufförsregister. Kontakta din åkare.</div>`);
+    return;
+  }
+  const all = await db.byIndex('bookings', 'haulerId', drv.haulerId);
+  const mine = all.filter(b => b.driverId === drv.id);
+  mine.sort((a, b) => (a.loadDate || '').localeCompare(b.loadDate || ''));
+  const active = mine.filter(b => b.status === 'accepted');
+  const done = mine.filter(b => b.status === 'completed');
+  const vehicles = await db.byIndex('vehicles', 'haulerId', drv.haulerId);
+  const vById = Object.fromEntries(vehicles.map(v => [v.id, v]));
+
+  const row = b => `<tr data-id="${b.id}">
+    <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
+    <td>${esc(b.loadDate)} ${esc(b.loadTime || '')}</td>
+    <td>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</td>
+    <td>${b.vehicleId && vById[b.vehicleId] ? esc(vById[b.vehicleId].regNr) : '<span class="muted">—</span>'}</td>
+    <td>
+      ${b.adr ? '<span class="badge feature">ADR</span>' : ''}
+      ${b.tailLift ? '<span class="badge feature">Bakgavellift</span>' : ''}
+      ${b.openSide ? '<span class="badge feature">Öppningsbar sida</span>' : ''}
+    </td>
+    <td><span class="badge ${b.status}">${STATUS_LABEL[b.status]}</span></td>
+  </tr>`;
+
+  mount(`
+    <h2>Mina uppdrag</h2>
+    <div class="banner info">Hej ${esc(u.name)}! Här är dina tilldelade körningar. Klicka på en rad för detaljer och för att ladda upp fraktsedel.</div>
+    <div class="stats">
+      <div class="stat"><div class="val">${active.length}</div><div class="lbl">Aktiva</div></div>
+      <div class="stat"><div class="val">${done.length}</div><div class="lbl">Utförda</div></div>
+    </div>
+    <div class="card">
+      <h3>Aktiva uppdrag</h3>
+      ${active.length === 0 ? `<div class="empty">Inga aktiva uppdrag just nu.</div>`
+      : `<table>
+          <thead><tr><th>Från → Till</th><th>Lastning</th><th>Lossning</th><th>Bil</th><th>Krav</th><th>Status</th></tr></thead>
+          <tbody>${active.map(row).join('')}</tbody>
+        </table>`}
+    </div>
+    ${done.length > 0 ? `<div class="card">
+      <h3>Tidigare uppdrag</h3>
+      <table>
+        <thead><tr><th>Från → Till</th><th>Lastning</th><th>Lossning</th><th>Bil</th><th>Krav</th><th>Status</th></tr></thead>
+        <tbody>${done.map(row).join('')}</tbody>
+      </table>
+    </div>` : ''}
+  `);
+  bindRowClicks();
+}
+
+// --------- Köpare: Dashboard ---------
+const SORT_OPTIONS = {
+  'from-asc':  { label: 'Avgångsort A–Ö', fn: (a,b,c) => c.compare(a.fromLocation||'', b.fromLocation||'') },
+  'from-desc': { label: 'Avgångsort Ö–A', fn: (a,b,c) => c.compare(b.fromLocation||'', a.fromLocation||'') },
+  'to-asc':    { label: 'Mål-ort A–Ö',    fn: (a,b,c) => c.compare(a.toLocation||'', b.toLocation||'') },
+  'date-asc':  { label: 'Lastdatum ↑',    fn: (a,b) => (a.loadDate||'9999').localeCompare(b.loadDate||'9999') },
+  'date-desc': { label: 'Lastdatum ↓',    fn: (a,b) => (b.loadDate||'0').localeCompare(a.loadDate||'0') },
+  'price-desc':{ label: 'Pris (högst)',   fn: (a,b) => (b.price||0) - (a.price||0) },
+  'recent':    { label: 'Senast skapad',  fn: (a,b) => b.createdAt - a.createdAt },
+};
+function getSortKey() { return localStorage.getItem('sortKey') || 'from-asc'; }
+function setSortKey(k) { localStorage.setItem('sortKey', k); }
+function applySort(list) {
+  const key = getSortKey();
+  const cfg = SORT_OPTIONS[key] || SORT_OPTIONS['from-asc'];
+  const coll = new Intl.Collator('sv', { sensitivity: 'base' });
+  list.sort((a, b) => cfg.fn(a, b, coll));
+  return list;
+}
+
+async function buyerDashboard(u) {
+  const all = await db.byIndex('bookings', 'buyerId', u.id);
+  applySort(all);
+
+  const byStatus = { open: [], accepted: [], completed: [] };
+  all.forEach(b => byStatus[b.status].push(b));
+
+  const sortKey = getSortKey();
+  const sortOpts = Object.entries(SORT_OPTIONS).map(([k,v]) => `<option value="${k}" ${k===sortKey?'selected':''}>${v.label}</option>`).join('');
+
+  mount(`
+    <h2>Mina körningar</h2>
+    <div class="btn-row">
+      <a class="btn" href="#/new">➕ Skapa ny körning</a>
+      ${all.some(b => b.sourceRef) ? `<button class="btn danger" id="clearImportedBtn" style="margin:0">🗑 Rensa importerade (${all.filter(b => b.sourceRef).length})</button>` : ''}
+      <label class="btn secondary" style="margin:0;display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+        ↕ Sortera:
+        <select id="sortSelect" style="border:none;background:transparent;color:inherit;font:inherit;cursor:pointer">${sortOpts}</select>
+      </label>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="val">${byStatus.open.length}</div><div class="lbl">Öppna</div></div>
+      <div class="stat"><div class="val">${byStatus.accepted.length}</div><div class="lbl">Accepterade</div></div>
+      <div class="stat"><div class="val">${byStatus.completed.length}</div><div class="lbl">Utförda</div></div>
+      <div class="stat"><div class="val">${fmtMoney(byStatus.completed.reduce((s, b) => s + b.price, 0))}</div><div class="lbl">Summa (utförda)</div></div>
+    </div>
+    <div class="card">
+      ${all.length === 0
+        ? `<div class="empty">Du har inga körningar ännu. <a href="#/new">Skapa din första</a></div>`
+        : renderBookingTable(all, 'buyer')}
+    </div>
+  `);
+  bindRowClicks();
+  bindClearImported(u);
+  const ss = document.getElementById('sortSelect');
+  if (ss) ss.onchange = () => { setSortKey(ss.value); buyerDashboard(u); };
+}
+
+function bindClearImported(u) {
+  const btn = document.getElementById('clearImportedBtn');
+  if (!btn) return;
+  btn.onclick = async () => {
+    const mine = await db.byIndex('bookings', 'buyerId', u.id);
+    const imported = mine.filter(b => b.sourceRef);
+    if (!imported.length) return;
+    if (!confirm(`Ta bort ${imported.length} importerade körningar permanent?`)) return;
+    let n = 0;
+    for (const b of imported) {
+      const msgs = await db.byIndex('messages', 'bookingId', b.id);
+      for (const m of msgs) await db.del('messages', m.id);
+      await db.del('bookings', b.id);
+      n++;
+    }
+    toast(`Rensade ${n} importerade körningar`);
+    location.hash = '#/';
+  };
+}
+
+function renderBookingTable(list, perspective) {
+  return `<table>
+    <thead><tr>
+      <th>Från → Till</th><th>Lastning</th><th>Lossning</th><th>Pris</th>
+      ${perspective === 'admin' ? '<th>Uppdragsgivare</th><th>Utförande åkare</th>' : ''}
+      <th>Status</th>
+    </tr></thead>
+    <tbody>
+    ${list.map(b => `
+      <tr data-id="${b.id}" onclick="location.hash='#/booking/${b.id}'" style="cursor:pointer">
+        <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b><br>
+            <span class="muted" style="font-size:11px">
+              ${b.adr ? '<span class="badge feature">ADR</span>' : ''}
+              ${b.tailLift ? '<span class="badge feature">Bakgavellift</span>' : ''}
+              ${b.openSide ? '<span class="badge feature">Öppningsbar sida</span>' : ''}
+            </span></td>
+        <td>${esc(b.loadDate)} ${esc(b.loadTime || '')}</td>
+        <td>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</td>
+        <td>${fmtMoney(b.price)}</td>
+        ${perspective === 'admin' ? `<td>${esc(b._buyerName || '?')}</td><td>${esc(b._haulerName || '—')}</td>` : ''}
+        <td><span class="badge ${b.status}">${STATUS_LABEL[b.status]}</span></td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+function bindRowClicks() {
+  document.querySelectorAll('tr[data-id]').forEach(tr => {
+    tr.onclick = () => navigate('/booking/' + tr.dataset.id);
+  });
+}
+
+// --------- Köpare: Ny körning ---------
+route(/^\/new$/, async (_m, u) => {
+  if (!canAcceptAndPost(u)) { toast('Logga in för att skapa körning', 'err'); return navigate('/'); }
+  mount(`
+    <h2>Ny körning</h2>
+    <div class="card">
+      <div class="card" style="background:#fff7e6;border:1px dashed #f59e0b;margin-bottom:16px">
+        <h3 style="margin-top:0;font-size:14px">🪄 Snabbifyll från mejl/text</h3>
+        <p class="muted" style="margin:0 0 8px;font-size:12px">Klistra in mejltext nedan så fylls fälten i automatiskt (från/till, postnr, datum, tid, vikt, pris, ADR osv).</p>
+        <textarea id="aiPasteText" rows="4" placeholder="Klistra in mejltexten här…" style="width:100%;font-size:12px"></textarea>
+        <div class="btn-row" style="margin-top:6px">
+          <button type="button" id="aiParseBtn" class="secondary">🪄 Tolka och fyll i</button>
+          <button type="button" id="aiClearBtn" class="secondary" style="background:#fff">Rensa</button>
+          <span id="aiResult" class="muted" style="font-size:12px;margin-left:8px"></span>
+        </div>
+      </div>
+      <form id="newForm">
+        <div class="row">
+          <div class="field"><label>Från (ort)</label><input name="fromLocation" required placeholder="t.ex. Stockholm"></div>
+          <div class="field"><label>Till (ort)</label><input name="toLocation" required placeholder="t.ex. Göteborg"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Postnr från <span class="muted">— valfritt</span></label><input name="fromPostal" placeholder="t.ex. 11122"></div>
+          <div class="field"><label>Postnr till <span class="muted">— valfritt</span></label><input name="toPostal" placeholder="t.ex. 41115"></div>
+        </div>
+        <div class="row-3">
+          <div class="field"><label>Lastningsdag</label><input name="loadDate" type="date" required></div>
+          <div class="field"><label>Lastningstid</label><input name="loadTime" type="time"></div>
+          <div class="field"><label>Pris (kr, exkl. moms) <span class="muted">— valfritt</span></label><input name="price" type="number" min="0" step="1" placeholder="Lämna tomt → åkare föreslår pris"></div>
+        </div>
+        <div class="row-3">
+          <div class="field"><label>Lossningsdag</label><input name="unloadDate" type="date" required></div>
+          <div class="field"><label>Lossningstid</label><input name="unloadTime" type="time"></div>
+          <div class="field"><label>Vikt (kg) <span class="muted">— valfritt</span></label><input name="weight" type="number" min="0" step="0.01" placeholder="t.ex. 1500"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Flakmeter (FLM/LDM) <span class="muted">— valfritt</span></label><input name="flm" type="number" min="0" step="0.1" placeholder="t.ex. 13.6"></div>
+          <div class="field"><label>Antal pall <span class="muted">— valfritt</span></label><input name="pallets" type="number" min="0" step="1" placeholder="t.ex. 12"></div>
+        </div>
+        <div class="field"><label>Bild på bokning (valfritt)</label><input name="bookingImage" type="file" accept="image/*"></div>
+        <h3 style="margin-top:12px">Krav på fordon</h3>
+        <div class="row-3">
+          <div class="check"><input type="checkbox" name="adr" id="cb-adr"><label for="cb-adr" style="margin:0">ADR (farligt gods)</label></div>
+          <div class="check"><input type="checkbox" name="tailLift" id="cb-tl"><label for="cb-tl" style="margin:0">Bakgavellift</label></div>
+          <div class="check"><input type="checkbox" name="openSide" id="cb-os"><label for="cb-os" style="margin:0">Öppningsbar sida</label></div>
+        </div>
+        <div class="field"><label>Beskrivning / kommentar (valfritt)</label><textarea name="description" placeholder="Last, antal pallar, särskilda instruktioner..."></textarea></div>
+        <div class="btn-row">
+          <button type="submit">Publicera körning</button>
+          <a class="btn secondary" href="#/">Avbryt</a>
+        </div>
+      </form>
+    </div>
+  `);
+  // Snabbifyll från mejl-text
+  document.getElementById('aiClearBtn').onclick = () => {
+    document.getElementById('aiPasteText').value = '';
+    document.getElementById('aiResult').textContent = '';
+  };
+  document.getElementById('aiParseBtn').onclick = () => {
+    const txt = document.getElementById('aiPasteText').value;
+    if (!txt.trim()) { document.getElementById('aiResult').textContent = 'Klistra in text först.'; return; }
+    const parsed = parseBookingFromText(txt);
+    const form = document.getElementById('newForm');
+    let filled = [];
+    const set = (name, val) => {
+      if (val == null || val === '') return;
+      const el = form.elements[name];
+      if (!el) return;
+      if (el.type === 'checkbox') {
+        if (val) { el.checked = true; filled.push(name); }
+      } else {
+        el.value = val;
+        filled.push(name);
+      }
+    };
+    set('fromLocation', parsed.fromLocation);
+    set('toLocation', parsed.toLocation);
+    set('fromPostal', parsed.fromPostal);
+    set('toPostal', parsed.toPostal);
+    set('loadDate', parsed.loadDate);
+    set('loadTime', parsed.loadTime);
+    set('unloadDate', parsed.unloadDate);
+    set('unloadTime', parsed.unloadTime);
+    set('weight', parsed.weight);
+    set('flm', parsed.flm);
+    set('pallets', parsed.pallets);
+    set('price', parsed.price);
+    set('adr', parsed.adr);
+    set('tailLift', parsed.tailLift);
+    set('openSide', parsed.openSide);
+    set('description', parsed.description);
+    document.getElementById('aiResult').textContent = filled.length
+      ? `✅ Fyllde i ${filled.length} fält. Kontrollera och redigera vid behov.`
+      : '⚠ Kunde inte tolka texten. Fyll i manuellt.';
+  };
+
+  document.getElementById('newForm').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const f = new FormData(e.target);
+      const file = f.get('bookingImage');
+      let bookingImageUrl = null;
+      if (file && file.size > 0) {
+        bookingImageUrl = await uploadImage(file, 'booking-images');
+      }
+      const booking = {
+        buyerId: u.id, haulerId: null,
+        fromLocation: f.get('fromLocation').trim(),
+        toLocation: f.get('toLocation').trim(),
+        fromPostal: (f.get('fromPostal') || '').trim(),
+        toPostal: (f.get('toPostal') || '').trim(),
+        weight: f.get('weight') ? Number(f.get('weight')) : null,
+        flm: f.get('flm') ? Number(f.get('flm')) : null,
+        pallets: f.get('pallets') ? Number(f.get('pallets')) : null,
+        loadDate: f.get('loadDate'), loadTime: f.get('loadTime') || null,
+        unloadDate: f.get('unloadDate'), unloadTime: f.get('unloadTime') || null,
+        adr: !!f.get('adr'), tailLift: !!f.get('tailLift'), openSide: !!f.get('openSide'),
+        price: f.get('price') ? Number(f.get('price')) : null,
+        description: (f.get('description') || '').trim(),
+        bookingImageUrl,
+        status: 'open', commission: 0,
+        contactVisible: false,
+      };
+      const saved = await db.add('bookings', booking);
+      toast('Körning publicerad');
+      navigate('/booking/' + saved.id);
+    } catch (err) {
+      console.error('Skapa körning fel:', err);
+      toast('Kunde inte publicera: ' + (err.message || err), 'err');
+    }
+  };
+});
+
+// --------- Åkare: Dashboard (egna uppdrag) ---------
+async function haulerDashboard(u) {
+  const mine = await db.byIndex('bookings', 'haulerId', u.id);
+  mine.sort((a, b) => b.createdAt - a.createdAt);
+  const byStatus = { accepted: [], completed: [] };
+  mine.forEach(b => { if (byStatus[b.status]) byStatus[b.status].push(b); });
+  const totalEarned = byStatus.completed.reduce((s, b) => s + (b.price - b.commission), 0);
+
+  mount(`
+    <h2>Mina uppdrag</h2>
+    <div class="btn-row"><a class="btn" href="#/available">📋 Visa tillgängliga körningar</a></div>
+    <div class="stats">
+      <div class="stat"><div class="val">${byStatus.accepted.length}</div><div class="lbl">Accepterade</div></div>
+      <div class="stat"><div class="val">${byStatus.completed.length}</div><div class="lbl">Utförda</div></div>
+      <div class="stat"><div class="val">${fmtMoney(totalEarned)}</div><div class="lbl">Netto (utförda)</div></div>
+      ${canSeeCommission(u) ? `<div class="stat"><div class="val">${fmtMoney(byStatus.completed.reduce((s, b) => s + (b.commission||0), 0))}</div><div class="lbl">Total provision</div></div>` : ''}
+    </div>
+    <div class="card">
+      ${mine.length === 0
+        ? `<div class="empty">Inga accepterade uppdrag ännu. <a href="#/available">Se tillgängliga körningar</a></div>`
+        : renderBookingTable(mine, 'hauler')}
+    </div>
+  `);
+  bindRowClicks();
+}
+
+// --------- Åkare: Tillgängliga körningar ---------
+route(/^\/available$/, async (_m, u) => {
+  if (!canAcceptAndPost(u)) { toast('Logga in för att se tillgängliga körningar', 'err'); return navigate('/'); }
+  const open = (await db.byIndex('bookings', 'status', 'open')).filter(b => b.buyerId !== u.id);
+  applySort(open);
+  const sortKey = getSortKey();
+  const sortOpts = Object.entries(SORT_OPTIONS).map(([k,v]) => `<option value="${k}" ${k===sortKey?'selected':''}>${v.label}</option>`).join('');
+  mount(`
+    <h2>Tillgängliga körningar</h2>
+    <div class="btn-row">
+      <label class="btn secondary" style="margin:0;display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+        ↕ Sortera:
+        <select id="sortSelectAvail" style="border:none;background:transparent;color:inherit;font:inherit;cursor:pointer">${sortOpts}</select>
+      </label>
+    </div>
+    <div class="banner info">Kontaktuppgifter till uppdragsgivaren visas först när du accepterar uppdraget.</div>
+    <div class="card">
+      ${open.length === 0 ? `<div class="empty">Inga öppna körningar just nu.</div>`
+      : `<table>
+        <thead><tr><th>Från → Till</th><th>Lastning</th><th>Lossning</th><th>Krav</th><th>Pris</th>${canSeeCommission(u) ? '<th>Netto åkare</th>' : ''}</tr></thead>
+        <tbody>
+          ${open.map(b => `
+            <tr data-id="${b.id}" onclick="location.hash='#/booking/${b.id}'" style="cursor:pointer">
+              <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
+              <td>${esc(b.loadDate)} ${esc(b.loadTime || '')}</td>
+              <td>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</td>
+              <td>
+                ${b.adr ? '<span class="badge feature">ADR</span>' : ''}
+                ${b.tailLift ? '<span class="badge feature">Bakgavellift</span>' : ''}
+                ${b.openSide ? '<span class="badge feature">Öppningsbar sida</span>' : ''}
+                ${!b.adr && !b.tailLift && !b.openSide ? '<span class="muted">Inga särskilda</span>' : ''}
+              </td>
+              <td>${b.price == null ? '<span class="muted">Önskar prisförslag</span>' : fmtMoney(b.price)}</td>
+              ${canSeeCommission(u) ? `<td>${b.price == null ? '<span class="muted">—</span>' : fmtMoney(nettoFor(b.price))}</td>` : ''}
+            </tr>`).join('')}
+        </tbody>
+      </table>`}
+    </div>
+  `);
+  bindRowClicks();
+  const ss = document.getElementById('sortSelectAvail');
+  if (ss) ss.onchange = () => { setSortKey(ss.value); navigate('/available'); };
+});
+
+// --------- Åkare: Bilar (CRUD) ---------
+route(/^\/vehicles$/, async (_m, u) => {
+  if (!isHauler(u)) { toast('Endast åkare kan hantera bilar', 'err'); return navigate('/'); }
+  const list = await db.byIndex('vehicles', 'haulerId', u.id);
+  list.sort((a, b) => (a.regNr || '').localeCompare(b.regNr || ''));
+  mount(`
+    <h2>Mina bilar (${list.length})</h2>
+    <div class="btn-row"><a class="btn" href="#/vehicles/new">➕ Lägg till bil</a></div>
+    <div class="card">
+      ${list.length === 0 ? `<div class="empty">Inga fordon ännu. Lägg till en bil för att kunna tilldela uppdrag.</div>`
+      : `<table>
+          <thead><tr><th>Regnr</th><th>Märke/Modell</th><th>Typ</th><th>Max vikt</th><th>FLM</th><th>Egenskaper</th><th></th></tr></thead>
+          <tbody>
+          ${list.map(v => `<tr>
+            <td><b>${esc(v.regNr || '—')}</b></td>
+            <td>${esc(v.model || '—')}</td>
+            <td>${esc(v.type || '—')}</td>
+            <td>${v.maxWeight ? esc(v.maxWeight) + ' kg' : '—'}</td>
+            <td>${v.maxFlm ? esc(v.maxFlm) : '—'}</td>
+            <td>
+              ${v.adr ? '<span class="badge feature">ADR</span>' : ''}
+              ${v.tailLift ? '<span class="badge feature">Bakgavellift</span>' : ''}
+              ${v.openSide ? '<span class="badge feature">Öppningsbar sida</span>' : ''}
+            </td>
+            <td>
+              <a class="btn secondary" href="#/vehicles/${v.id}/edit">Ändra</a>
+              <button class="danger" data-del="${v.id}">Ta bort</button>
+            </td>
+          </tr>`).join('')}
+          </tbody>
+        </table>`}
+    </div>
+  `);
+  document.querySelectorAll('button[data-del]').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('Ta bort fordonet?')) return;
+      await db.del('vehicles', btn.dataset.del);
+      toast('Borttagen');
+      navigate('/vehicles');
+    };
+  });
+});
+
+function vehicleForm(v) {
+  v = v || {};
+  return `
+    <div class="card">
+      <form id="vehForm">
+        <div class="row">
+          <div class="field"><label>Registreringsnummer</label><input name="regNr" required value="${esc(v.regNr || '')}" placeholder="ABC123"></div>
+          <div class="field"><label>Märke / Modell</label><input name="model" value="${esc(v.model || '')}" placeholder="Volvo FH16"></div>
+        </div>
+        <div class="row-3">
+          <div class="field"><label>Typ</label>
+            <select name="type">
+              ${['Lastbil','Dragbil','Släp','Trailer','Skåpbil','Annan'].map(t => `<option value="${t}" ${v.type===t?'selected':''}>${t}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>Max vikt (kg)</label><input name="maxWeight" type="number" min="0" value="${esc(v.maxWeight || '')}"></div>
+          <div class="field"><label>Volym (m³)</label><input name="maxVolume" type="number" min="0" step="0.1" value="${esc(v.maxVolume || '')}"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Flakmeter (FLM)</label><input name="maxFlm" type="number" min="0" step="0.1" value="${esc(v.maxFlm || '')}"></div>
+          <div class="field"><label>Antal pallplatser</label><input name="maxPall" type="number" min="0" value="${esc(v.maxPall || '')}"></div>
+        </div>
+        <h3 style="margin-top:12px">Egenskaper</h3>
+        <div class="row-3">
+          <div class="check"><input type="checkbox" name="adr" id="vcb-adr" ${v.adr?'checked':''}><label for="vcb-adr" style="margin:0">ADR</label></div>
+          <div class="check"><input type="checkbox" name="tailLift" id="vcb-tl" ${v.tailLift?'checked':''}><label for="vcb-tl" style="margin:0">Bakgavellift</label></div>
+          <div class="check"><input type="checkbox" name="openSide" id="vcb-os" ${v.openSide?'checked':''}><label for="vcb-os" style="margin:0">Öppningsbar sida</label></div>
+        </div>
+        <div class="field"><label>Anteckning (valfritt)</label><textarea name="notes">${esc(v.notes || '')}</textarea></div>
+        <div class="btn-row">
+          <button type="submit">${v.id ? 'Spara ändringar' : 'Lägg till bil'}</button>
+          <a class="btn secondary" href="#/vehicles">Avbryt</a>
+        </div>
+      </form>
+    </div>`;
+}
+
+route(/^\/vehicles\/new$/, async (_m, u) => {
+  if (!isHauler(u)) return navigate('/');
+  mount(`<h2>Ny bil</h2>${vehicleForm()}`);
+  document.getElementById('vehForm').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    await db.add('vehicles', {
+      haulerId: u.id,
+      regNr: (f.get('regNr') || '').trim().toUpperCase(),
+      model: (f.get('model') || '').trim(),
+      type: f.get('type') || '',
+      maxWeight: f.get('maxWeight') ? Number(f.get('maxWeight')) : null,
+      maxVolume: f.get('maxVolume') ? Number(f.get('maxVolume')) : null,
+      maxFlm: f.get('maxFlm') ? Number(f.get('maxFlm')) : null,
+      maxPall: f.get('maxPall') ? Number(f.get('maxPall')) : null,
+      adr: !!f.get('adr'), tailLift: !!f.get('tailLift'), openSide: !!f.get('openSide'),
+      notes: (f.get('notes') || '').trim(),
+      createdAt: Date.now(),
+    });
+    toast('Bil tillagd');
+    navigate('/vehicles');
+  };
+});
+
+route(/^\/vehicles\/([\w-]+)\/edit$/, async (m, u) => {
+  if (!isHauler(u)) return navigate('/');
+  const v = await db.get('vehicles', m[1]);
+  if (!v || v.haulerId !== u.id) { toast('Hittas inte', 'err'); return navigate('/vehicles'); }
+  mount(`<h2>Ändra bil — ${esc(v.regNr)}</h2>${vehicleForm(v)}`);
+  document.getElementById('vehForm').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    await db.put('vehicles', {
+      ...v,
+      regNr: (f.get('regNr') || '').trim().toUpperCase(),
+      model: (f.get('model') || '').trim(),
+      type: f.get('type') || '',
+      maxWeight: f.get('maxWeight') ? Number(f.get('maxWeight')) : null,
+      maxVolume: f.get('maxVolume') ? Number(f.get('maxVolume')) : null,
+      maxFlm: f.get('maxFlm') ? Number(f.get('maxFlm')) : null,
+      maxPall: f.get('maxPall') ? Number(f.get('maxPall')) : null,
+      adr: !!f.get('adr'), tailLift: !!f.get('tailLift'), openSide: !!f.get('openSide'),
+      notes: (f.get('notes') || '').trim(),
+    });
+    toast('Sparad');
+    navigate('/vehicles');
+  };
+});
+
+// --------- Lediga bilar (åkare/speditörer publicerar tillgängliga fordon) ---------
+route(/^\/free-vehicles$/, async (_m, u) => {
+  if (!u || u.role === 'chauffor') return navigate('/');
+  const all = await db.all('freeVehicles');
+  const active = all.filter(x => x.status !== 'archived');
+  active.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const users = {};
+  const vehiclesById = {};
+  for (const fv of active) {
+    if (!users[fv.haulerId]) users[fv.haulerId] = await db.get('users', fv.haulerId);
+    if (fv.vehicleId && !vehiclesById[fv.vehicleId]) vehiclesById[fv.vehicleId] = await db.get('vehicles', fv.vehicleId);
+  }
+  mount(`
+    <h2>🚚 Lediga bilar (${active.length})</h2>
+    <div class="btn-row">
+      ${canAcceptAndPost(u) ? `<a class="btn" href="#/free-vehicles/new">➕ Lägg till ledig bil</a>` : ''}
+    </div>
+    <div class="banner info">Här ser du tillgängliga fordon som söker last. Kontakta åkaren för att matcha med en körning.</div>
+    <div class="card">
+      ${active.length === 0 ? `<div class="empty">Inga lediga bilar just nu.</div>`
+      : `<table class="compact">
+          <thead><tr><th>Rutt</th><th>Fordon</th><th>Egenskaper</th><th>Tillgänglig</th><th>Åkare</th><th>Kommentar</th><th></th></tr></thead>
+          <tbody>
+          ${active.map(fv => {
+            const owner = users[fv.haulerId];
+            const isMine = u.id === fv.haulerId;
+            const dest = fv.anywhere ? '<span class="badge feature">Vart som helst</span>' : `<b>${esc(fv.destination || '—')}</b>`;
+            const linkedVeh = fv.vehicleId ? vehiclesById[fv.vehicleId] : null;
+            const flm = (fv.freeFlm != null && fv.freeFlm !== '') ? `${esc(fv.freeFlm)} FLM` : '';
+            const vehTop = linkedVeh ? `<b>${esc(linkedVeh.regNr || '')}</b>` : '<span class="muted">—</span>';
+            const vehSub = [linkedVeh?.model, flm].filter(Boolean).map(esc).join(' · ');
+            const features = [
+              fv.adr ? '<span class="badge feature">ADR</span>' : '',
+              fv.tailLift ? '<span class="badge feature">Lift</span>' : '',
+              fv.openSide ? '<span class="badge feature">Öpp.sida</span>' : '',
+              fv.reefer ? '<span class="badge feature">Kyl/Frys</span>' : '',
+            ].filter(Boolean).join('');
+            const avail = [fv.availableFrom, fv.availableTime].filter(Boolean).join(' ') || '—';
+            return `<tr>
+              <td><b>${esc(fv.currentLocation || '—')}</b> → ${dest}</td>
+              <td>${vehTop}${vehSub ? '<br><span class="muted" style="font-size:11px">' + vehSub + '</span>' : ''}</td>
+              <td>${features || '<span class="muted">—</span>'}</td>
+              <td class="nowrap">${esc(avail)}</td>
+              <td>${owner ? esc(owner.company || owner.name) : '—'}<br><span class="muted" style="font-size:11px">${owner ? esc(owner.phone || owner.email) : ''}</span></td>
+              <td style="font-size:12px">${esc(fv.comment || '')}</td>
+              <td class="nowrap">${isMine || u.role === 'admin'
+                ? `<a class="btn secondary icon-btn" href="#/free-vehicles/${fv.id}/edit" title="Ändra">✏️</a>
+                   <button class="danger icon-btn" data-delfv="${fv.id}" title="Ta bort">🗑</button>`
+                : ''}</td>
+            </tr>`;
+          }).join('')}
+          </tbody>
+        </table>`}
+    </div>
+  `);
+  document.querySelectorAll('button[data-delfv]').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('Ta bort den lediga bilen?')) return;
+      await db.del('freeVehicles', btn.dataset.delfv);
+      toast('Borttagen');
+      navigate('/free-vehicles');
+    };
+  });
+});
+
+function freeVehicleForm(fv, vehicles) {
+  fv = fv || {};
+  const vehOpts = `<option value="">— Valfritt: välj från Mina bilar —</option>` +
+    vehicles.map(v => `<option value="${v.id}" ${fv.vehicleId==v.id?'selected':''}>${esc(v.regNr)} ${v.model ? '· ' + esc(v.model) : ''}</option>`).join('');
+  return `
+    <div class="card fv-form">
+      <form id="fvForm">
+        <h4>📍 Plats &amp; rutt</h4>
+        <div class="row-3">
+          <div class="field"><label>Befinner sig i *</label><input name="currentLocation" required value="${esc(fv.currentLocation || '')}" placeholder="t.ex. Linköping"></div>
+          <div class="field" id="destField"><label>Söker last till</label><input name="destination" value="${esc(fv.destination || '')}" placeholder="t.ex. Stockholm"></div>
+          <div class="field" style="display:flex;align-items:flex-end;padding-bottom:8px">
+            <div class="check" style="margin:0">
+              <input type="checkbox" name="anywhere" id="fv-anywhere" ${fv.anywhere?'checked':''}>
+              <label for="fv-anywhere" style="margin:0">Vart som helst</label>
+            </div>
+          </div>
+        </div>
+
+        <h4>🕒 Tillgänglig från · 🚛 Fordon</h4>
+        <div class="row-4">
+          <div class="field"><label>Datum *</label><input name="availableFrom" type="date" required value="${esc(fv.availableFrom || '')}"></div>
+          <div class="field"><label>Tid</label><input name="availableTime" type="time" value="${esc(fv.availableTime || '')}"></div>
+          <div class="field"><label>Bil (från Mina bilar)</label><select name="vehicleId">${vehOpts}</select></div>
+          <div class="field"><label>Lediga FLM</label><input name="freeFlm" type="number" min="0" step="0.1" value="${esc(fv.freeFlm == null ? '' : fv.freeFlm)}" placeholder="13.6"></div>
+        </div>
+
+        <h4>⚙️ Egenskaper</h4>
+        <div class="row-4">
+          <div class="check"><input type="checkbox" name="adr" id="fv-adr" ${fv.adr?'checked':''}><label for="fv-adr" style="margin:0">ADR-utrustad</label></div>
+          <div class="check"><input type="checkbox" name="tailLift" id="fv-tl" ${fv.tailLift?'checked':''}><label for="fv-tl" style="margin:0">Bakgavellift</label></div>
+          <div class="check"><input type="checkbox" name="openSide" id="fv-os" ${fv.openSide?'checked':''}><label for="fv-os" style="margin:0">Öppningsbar sida</label></div>
+          <div class="check"><input type="checkbox" name="reefer" id="fv-rf" ${fv.reefer?'checked':''}><label for="fv-rf" style="margin:0">Kyl/Frys</label></div>
+        </div>
+
+        <div class="field"><label>Kommentar / extra info</label><textarea name="comment" rows="2" placeholder="t.ex. kan ta retur, max vikt, lastrumsmått...">${esc(fv.comment || '')}</textarea></div>
+        <div class="btn-row">
+          <button type="submit">${fv.id ? 'Spara ändringar' : 'Publicera ledig bil'}</button>
+          <a class="btn secondary" href="#/free-vehicles">Avbryt</a>
+        </div>
+      </form>
+    </div>`;
+}
+
+route(/^\/free-vehicles\/new$/, async (_m, u) => {
+  if (!canAcceptAndPost(u)) return navigate('/');
+  const vehicles = await db.byIndex('vehicles', 'haulerId', u.id);
+  mount(`<h2>Lägg till ledig bil</h2>${freeVehicleForm(null, vehicles)}`);
+  bindFreeVehicleForm(u, null);
+});
+
+route(/^\/free-vehicles\/([\w-]+)\/edit$/, async (m, u) => {
+  if (!u) return navigate('/');
+  const fv = await db.get('freeVehicles', m[1]);
+  if (!fv) { toast('Hittas inte', 'err'); return navigate('/free-vehicles'); }
+  if (fv.haulerId !== u.id && u.role !== 'admin') { toast('Inte din', 'err'); return navigate('/free-vehicles'); }
+  const vehicles = await db.byIndex('vehicles', 'haulerId', fv.haulerId);
+  mount(`<h2>Ändra ledig bil</h2>${freeVehicleForm(fv, vehicles)}`);
+  bindFreeVehicleForm(u, fv);
+});
+
+function bindFreeVehicleForm(u, fv) {
+  const anyCb = document.querySelector('input[name="anywhere"]');
+  const destField = document.getElementById('destField');
+  const updateDest = () => { destField.style.display = anyCb.checked ? 'none' : ''; };
+  anyCb.onchange = updateDest; updateDest();
+  document.getElementById('fvForm').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const anywhere = !!f.get('anywhere');
+    const destination = (f.get('destination') || '').trim();
+    if (!anywhere && !destination) { toast('Ange destination eller kryssa "Kan åka vart som helst"', 'err'); return; }
+    const data = {
+      haulerId: fv ? fv.haulerId : u.id,
+      currentLocation: (f.get('currentLocation') || '').trim(),
+      availableFrom: f.get('availableFrom') || '',
+      availableTime: f.get('availableTime') || '',
+      anywhere,
+      destination: anywhere ? '' : destination,
+      vehicleId: f.get('vehicleId') ? Number(f.get('vehicleId')) : null,
+      freeFlm: f.get('freeFlm') ? Number(f.get('freeFlm')) : null,
+      adr: !!f.get('adr'),
+      tailLift: !!f.get('tailLift'),
+      openSide: !!f.get('openSide'),
+      reefer: !!f.get('reefer'),
+      comment: (f.get('comment') || '').trim(),
+      status: 'available',
+      createdAt: fv ? fv.createdAt : Date.now(),
+      updatedAt: Date.now(),
+    };
+    if (fv) { data.id = fv.id; await db.put('freeVehicles', data); toast('Sparad'); }
+    else { await db.add('freeVehicles', data); toast('Publicerad'); }
+    navigate('/free-vehicles');
+  };
+}
+
+// --------- Åkare: Chaufförer (CRUD + egna inloggningar) ---------
+route(/^\/drivers$/, async (_m, u) => {
+  if (!isHauler(u)) { toast('Endast åkare kan hantera chaufförer', 'err'); return navigate('/'); }
+  const list = await db.byIndex('drivers', 'haulerId', u.id);
+  list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const vehicles = await db.byIndex('vehicles', 'haulerId', u.id);
+  const vById = Object.fromEntries(vehicles.map(v => [v.id, v]));
+  mount(`
+    <h2>Mina chaufförer (${list.length})</h2>
+    <div class="btn-row"><a class="btn" href="#/drivers/new">➕ Lägg till chaufför</a></div>
+    <div class="banner info">Chaufförer loggar in med sin e-post och får se sina tilldelade uppdrag — men inte priser eller marginaler.</div>
+    <div class="card">
+      ${list.length === 0 ? `<div class="empty">Inga chaufförer ännu.</div>`
+      : `<table>
+          <thead><tr><th>Namn</th><th>E-post (login)</th><th>Telefon</th><th>Standardbil</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+          ${list.map(d => `<tr>
+            <td><b>${esc(d.name)}</b></td>
+            <td>${esc(d.email)}</td>
+            <td>${esc(d.phone || '—')}</td>
+            <td>${d.defaultVehicleId && vById[d.defaultVehicleId] ? esc(vById[d.defaultVehicleId].regNr) : '<span class="muted">—</span>'}</td>
+            <td>${d.active === false ? '<span class="badge">Avaktiverad</span>' : '<span class="badge feature">Aktiv</span>'}</td>
+            <td>
+              <a class="btn secondary" href="#/drivers/${d.id}/edit">Ändra</a>
+              <button class="danger" data-del="${d.id}">Ta bort</button>
+            </td>
+          </tr>`).join('')}
+          </tbody>
+        </table>`}
+    </div>
+  `);
+  document.querySelectorAll('button[data-del]').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('Ta bort chauffören? Inloggningen tas bort.')) return;
+      const id = btn.dataset.del;
+      const d = await db.get('drivers', id);
+      if (d && d.userId) { try { await db.del('users', d.userId); } catch(_){} }
+      await db.del('drivers', id);
+      toast('Borttagen');
+      navigate('/drivers');
+    };
+  });
+});
+
+async function driverForm(d, u) {
+  d = d || {};
+  const vehicles = await db.byIndex('vehicles', 'haulerId', u.id);
+  const vehOpts = `<option value="">— ingen —</option>` +
+    vehicles.map(v => `<option value="${v.id}" ${d.defaultVehicleId===v.id?'selected':''}>${esc(v.regNr)} ${esc(v.model || '')}</option>`).join('');
+  return `
+    <div class="card">
+      <form id="drvForm">
+        <div class="row">
+          <div class="field"><label>Namn</label><input name="name" required value="${esc(d.name || '')}"></div>
+          <div class="field"><label>Telefon</label><input name="phone" value="${esc(d.phone || '')}" placeholder="070-..."></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>E-post (används för inloggning)</label><input name="email" type="email" required value="${esc(d.email || '')}" ${d.id?'readonly':''}></div>
+          <div class="field"><label>${d.id ? 'Nytt lösenord (valfritt)' : 'Initialt lösenord'}</label><input name="pwd" type="${d.id?'text':'password'}" ${d.id?'':'required minlength="4"'} placeholder="${d.id?'Lämna tomt för oförändrat':'Minst 4 tecken'}"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Standardbil (valfritt)</label><select name="defaultVehicleId">${vehOpts}</select></div>
+          <div class="field"><label>Status</label>
+            <select name="active">
+              <option value="1" ${d.active!==false?'selected':''}>Aktiv</option>
+              <option value="0" ${d.active===false?'selected':''}>Avaktiverad</option>
+            </select>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button type="submit">${d.id ? 'Spara ändringar' : 'Lägg till chaufför'}</button>
+          <a class="btn secondary" href="#/drivers">Avbryt</a>
+        </div>
+      </form>
+    </div>`;
+}
+
+route(/^\/drivers\/new$/, async (_m, u) => {
+  if (!isHauler(u)) return navigate('/');
+  mount(`<h2>Ny chaufför</h2>${await driverForm(null, u)}`);
+  document.getElementById('drvForm').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const email = (f.get('email') || '').toLowerCase().trim();
+    if (await db.oneByIndex('users', 'email', email)) { toast('E-posten används redan', 'err'); return; }
+    const passwordHash = await hashPwd(f.get('pwd'));
+    const newUser = await db.add('users', {
+      email, passwordHash, role: 'chauffor',
+      name: (f.get('name') || '').trim(),
+      phone: (f.get('phone') || '').trim(),
+      company: u.company || '',
+      haulerId: u.id,
+      createdAt: Date.now(),
+    });
+    await db.add('drivers', {
+      haulerId: u.id,
+      userId: newUser.id,
+      name: (f.get('name') || '').trim(),
+      email,
+      phone: (f.get('phone') || '').trim(),
+      defaultVehicleId: f.get('defaultVehicleId') ? Number(f.get('defaultVehicleId')) : null,
+      active: f.get('active') === '1',
+      createdAt: Date.now(),
+    });
+    toast('Chaufför tillagd — login skapat');
+    navigate('/drivers');
+  };
+});
+
+route(/^\/drivers\/([\w-]+)\/edit$/, async (m, u) => {
+  if (!isHauler(u)) return navigate('/');
+  const d = await db.get('drivers', m[1]);
+  if (!d || d.haulerId !== u.id) { toast('Hittas inte', 'err'); return navigate('/drivers'); }
+  mount(`<h2>Ändra chaufför — ${esc(d.name)}</h2>${await driverForm(d, u)}`);
+  document.getElementById('drvForm').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const newPwd = f.get('pwd');
+    const updates = {
+      ...d,
+      name: (f.get('name') || '').trim(),
+      phone: (f.get('phone') || '').trim(),
+      defaultVehicleId: f.get('defaultVehicleId') ? Number(f.get('defaultVehicleId')) : null,
+      active: f.get('active') === '1',
+    };
+    await db.put('drivers', updates);
+    if (d.userId) {
+      const userRow = await db.get('users', d.userId);
+      if (userRow) {
+        userRow.name = updates.name;
+        userRow.phone = updates.phone;
+        if (newPwd) userRow.passwordHash = await hashPwd(newPwd);
+        await db.put('users', userRow);
+      }
+    }
+    toast('Sparad');
+    navigate('/drivers');
+  };
+});
+
+// --------- Admin: Dashboard ---------
+async function adminDashboard(u) {
+  const bookings = await db.all('bookings');
+  const users = await db.all('users');
+  const byId = Object.fromEntries(users.map(x => [x.id, x]));
+  bookings.forEach(b => {
+    b._buyerName = byId[b.buyerId]?.name;
+    b._haulerName = b.haulerId ? byId[b.haulerId]?.name : null;
+  });
+  bookings.sort((a, b) => b.createdAt - a.createdAt);
+
+  const totalCommission = bookings.filter(b => b.status === 'completed').reduce((s, b) => s + b.commission, 0);
+  const pendingCommission = bookings.filter(b => b.status === 'accepted').reduce((s, b) => s + b.commission, 0);
+
+  mount(`
+    <h2>Admin — översikt</h2>
+    <div class="stats">
+      <div class="stat"><div class="val">${bookings.length}</div><div class="lbl">Körningar totalt</div></div>
+      <div class="stat"><div class="val">${users.length}</div><div class="lbl">Användare</div></div>
+      <div class="stat"><div class="val">${fmtMoney(pendingCommission)}</div><div class="lbl">Upparbetad provision</div></div>
+      <div class="stat"><div class="val">${fmtMoney(totalCommission)}</div><div class="lbl">Intjänad provision</div></div>
+    </div>
+    <div class="card">
+      <h3>Alla körningar</h3>
+      ${bookings.length === 0 ? `<div class="empty">Inga körningar</div>` : renderBookingTable(bookings, 'admin')}
+    </div>
+  `);
+  bindRowClicks();
+}
+
+// Admin: användarlista
+route(/^\/users$/, async (_m, u) => {
+  if (u.role !== 'admin') return navigate('/');
+  const users = await db.all('users');
+  users.sort((a, b) => a.role.localeCompare(b.role) || a.name.localeCompare(b.name));
+  const allBookings = await db.all('bookings');
+  const allVehicles = await db.all('vehicles');
+  const completedByUser = (uid) => {
+    const set = new Set();
+    for (const b of allBookings) {
+      if (b.status !== 'completed') continue;
+      if (b.buyerId === uid || b.haulerId === uid) set.add(b.id);
+    }
+    return set.size;
+  };
+  const publishedByUser = (uid) => allBookings.filter(b => b.buyerId === uid).length;
+  const acceptedByUser  = (uid) => allBookings.filter(b => b.haulerId === uid).length;
+  const vehicleCountFor = (uid) => allVehicles.filter(v => v.haulerId === uid).length;
+
+  const subStatusBadge = (x) => {
+    const s = subscriptionStatusFor(x);
+    return ({
+      trial:   `<span class="badge open">PROVPERIOD (${trialDaysLeft(x)}d)</span>`,
+      paid:    '<span class="badge accepted">AKTIV</span>',
+      expired: '<span class="badge completed">UTGÅNGEN</span>',
+      none:    '<span class="muted">—</span>',
+    })[s] || '';
+  };
+
+  mount(`
+    <h2>Användare (${users.length})</h2>
+    <div class="btn-row">
+      <a class="btn" href="#/users/new">➕ Skapa användare</a>
+    </div>
+    <div class="card">
+      <table class="compact">
+        <thead><tr>
+          <th>Namn</th>
+          <th>Roll</th>
+          <th>Företag</th>
+          <th>E-post</th>
+          <th>Telefon</th>
+          <th>Bilar</th>
+          <th>Prenumeration</th>
+          <th>Publ.</th>
+          <th>Acc.</th>
+          <th>Utf.</th>
+          <th>Reg.</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          ${users.map(x => `<tr>
+            <td><b>${esc(x.name)}</b></td>
+            <td><span class="badge feature">${ROLE_LABEL[x.role]}</span></td>
+            <td>${esc(x.company || '—')}</td>
+            <td>${esc(x.email)}</td>
+            <td>${esc(x.phone || '—')}</td>
+            <td style="text-align:center">${vehicleCountFor(x.id)}</td>
+            <td>${x.role === 'akare' ? subStatusBadge(x) : '<span class="muted">—</span>'}</td>
+            <td style="text-align:center">${publishedByUser(x.id)}</td>
+            <td style="text-align:center">${acceptedByUser(x.id)}</td>
+            <td style="text-align:center"><b>${completedByUser(x.id)}</b></td>
+            <td class="nowrap" style="font-size:11px">${fmtDate(x.createdAt)}</td>
+            <td class="nowrap">
+              <a class="btn secondary icon-btn" href="#/users/${x.id}/edit" title="Redigera">✏️</a>
+              ${x.id !== u.id ? `<button class="danger icon-btn" data-deluser="${x.id}" title="Radera">🗑</button>` : ''}
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `);
+  document.querySelectorAll('button[data-deluser]').forEach(btn => {
+    btn.onclick = async () => {
+      const uid = btn.dataset.deluser;
+      const target = users.find(u => u.id === uid);
+      if (!target) return;
+      if (!confirm(`Radera användaren ${target.name} (${target.email}) permanent?\n\nDetta kan inte ångras. Bokningar och bud kopplade till användaren behålls men markeras som "borttagen användare".`)) return;
+      await db.del('users', uid);
+      toast(`Användare ${target.name} raderad`);
+      navigate('/users');
+    };
+  });
+});
+
+// --------- Admin: Skapa användare ---------
+route(/^\/users\/new$/, async (_m, u) => {
+  if (u.role !== 'admin') return navigate('/');
+  mount(`
+    <h2>Skapa ny användare</h2>
+    ${userForm(null)}
+  `);
+  bindUserForm(null);
+});
+
+// --------- Admin: Redigera användare ---------
+route(/^\/users\/([\w-]+)\/edit$/, async (m, u) => {
+  if (u.role !== 'admin') return navigate('/');
+  const target = await db.get('users', m[1]);
+  if (!target) { toast('Användaren hittas inte', 'err'); return navigate('/users'); }
+  mount(`
+    <h2>Redigera ${esc(target.name)}</h2>
+    ${userForm(target)}
+  `);
+  bindUserForm(target);
+});
+
+function userForm(target) {
+  const t = target || {};
+  const isNew = !target;
+  const trialEndIso = t.createdAt
+    ? new Date(t.createdAt + TRIAL_DAYS * 86400000).toISOString().slice(0,10)
+    : '';
+  return `
+    <div class="card">
+      <form id="userForm">
+        <h3 style="margin-top:0">Kontouppgifter</h3>
+        <div class="row">
+          <div class="field"><label>Namn *</label><input name="name" required value="${esc(t.name || '')}"></div>
+          <div class="field"><label>Roll *</label>
+            <select name="role" required>
+              <option value="akare" ${t.role==='akare'?'selected':''}>Åkare</option>
+              <option value="chauffor" ${t.role==='chauffor'?'selected':''}>Chaufför</option>
+              <option value="admin" ${t.role==='admin'?'selected':''}>Admin</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field"><label>E-post *</label><input name="email" type="email" required value="${esc(t.email || '')}"></div>
+          <div class="field"><label>Telefon</label><input name="phone" value="${esc(t.phone || '')}"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>${isNew ? 'Lösenord *' : 'Nytt lösenord (lämna tomt = oförändrat)'}</label><input name="pwd" type="password" ${isNew ? 'required' : ''} autocomplete="new-password"></div>
+          <div class="field"><label>Kontaktperson</label><input name="contactPerson" value="${esc(t.contactPerson || '')}"></div>
+        </div>
+
+        <h3>Företagsuppgifter</h3>
+        <div class="row">
+          <div class="field"><label>Företagsnamn</label><input name="company" value="${esc(t.company || '')}"></div>
+          <div class="field"><label>Org.nr</label><input name="orgNr" value="${esc(t.orgNr || '')}"></div>
+        </div>
+        <div class="field"><label>Adress</label><input name="address" value="${esc(t.address || '')}"></div>
+        <div class="row">
+          <div class="field"><label>Bankgiro</label><input name="bankgiro" value="${esc(t.bankgiro || '')}"></div>
+          <div class="field"><label>Plusgiro</label><input name="plusgiro" value="${esc(t.plusgiro || '')}"></div>
+        </div>
+
+        <h3>💳 Prenumeration</h3>
+        <div class="check" style="margin:8px 0">
+          <input type="checkbox" name="subscriptionActive" id="subActive" ${t.subscriptionActive ? 'checked' : ''}>
+          <label for="subActive" style="margin:0">Prenumerationen är aktiv (betalande)</label>
+        </div>
+        <div class="row">
+          <div class="field"><label>Provperiod slutar (datum)</label><input name="trialEndDate" type="date" value="${trialEndIso}"></div>
+          <div class="field"><label>Manuell månadsavgift (kr exkl moms, lämna tomt = auto baserat på antal bilar)</label><input name="customMonthlyPrice" type="number" min="0" step="1" value="${t.customMonthlyPrice != null ? esc(t.customMonthlyPrice) : ''}"></div>
+        </div>
+
+        <div class="btn-row" style="margin-top:14px">
+          <button type="submit">${isNew ? 'Skapa användare' : 'Spara ändringar'}</button>
+          <a class="btn secondary" href="#/users">Avbryt</a>
+        </div>
+      </form>
+    </div>`;
+}
+
+function bindUserForm(target) {
+  const isNew = !target;
+  document.getElementById('userForm').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const f = new FormData(e.target);
+      const email = (f.get('email') || '').toLowerCase().trim();
+      if (!email) { toast('E-post krävs', 'err'); return; }
+
+      // Om ny eller email ändrad — kolla duplicat
+      if (isNew || email !== target.email) {
+        const existing = await db.oneByIndex('users', 'email', email);
+        if (existing && (!target || existing.id !== target.id)) {
+          toast('E-postadressen är redan registrerad', 'err');
+          return;
+        }
+      }
+
+      const data = target ? { ...target } : { createdAt: Date.now() };
+      data.email = email;
+      data.name = (f.get('name') || '').trim();
+      data.role = f.get('role');
+      data.phone = (f.get('phone') || '').trim();
+      data.company = (f.get('company') || '').trim();
+      data.orgNr = (f.get('orgNr') || '').trim();
+      data.address = (f.get('address') || '').trim();
+      data.contactPerson = (f.get('contactPerson') || '').trim();
+      data.bankgiro = (f.get('bankgiro') || '').trim();
+      data.plusgiro = (f.get('plusgiro') || '').trim();
+      data.subscriptionActive = !!f.get('subscriptionActive');
+
+      const customPrice = f.get('customMonthlyPrice');
+      data.customMonthlyPrice = (customPrice && Number(customPrice) > 0) ? Number(customPrice) : null;
+
+      // Trial end: räkna tillbaka till createdAt så befintliga helpers fungerar
+      const trialEndDate = f.get('trialEndDate');
+      if (trialEndDate) {
+        data.createdAt = new Date(trialEndDate).getTime() - TRIAL_DAYS * 86400000;
+      }
+
+      // Lösenord
+      const pwd = f.get('pwd');
+      if (pwd) {
+        data.passwordHash = await hashPwd(pwd);
+      } else if (isNew) {
+        toast('Lösenord krävs för ny användare', 'err');
+        return;
+      }
+
+      if (isNew) {
+        await db.add('users', data);
+        toast(`Användare ${data.name} skapad`);
+      } else {
+        await db.put('users', data);
+        toast('Ändringar sparade');
+      }
+      navigate('/users');
+    } catch (err) {
+      console.error('Spara användare-fel:', err);
+      toast('Fel: ' + (err.message || err), 'err');
+    }
+  };
+}
+
+// --------- Statistik (åkare) ---------
+function periodRange(period, ref = new Date()) {
+  const d = new Date(ref);
+  let from, to = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+  if (period === 'week') {
+    const day = (d.getDay() + 6) % 7; // måndag = 0
+    from = new Date(d.getFullYear(), d.getMonth(), d.getDate() - day);
+  } else if (period === 'month') {
+    from = new Date(d.getFullYear(), d.getMonth(), 1);
+  } else if (period === 'year') {
+    from = new Date(d.getFullYear(), 0, 1);
+  } else {
+    from = new Date(0);
+  }
+  return { from: from.getTime(), to: to.getTime() };
+}
+
+route(/^\/stats$/, async (_m, u) => {
+  if (!u || u.role === 'chauffor') return navigate('/');
+  const params = new URLSearchParams((location.hash.split('?')[1]) || '');
+  const period = params.get('period') || 'month';
+  const customFrom = params.get('from');
+  const customTo = params.get('to');
+  let range;
+  if (customFrom && customTo) {
+    range = { from: new Date(customFrom).getTime(), to: new Date(customTo).getTime() + 86400000 - 1 };
+  } else {
+    range = periodRange(period);
+  }
+  const inRange = (ts) => ts && ts >= range.from && ts <= range.to;
+
+  const myPublished = await db.byIndex('bookings', 'buyerId', u.id);
+  const myAccepted = await db.byIndex('bookings', 'haulerId', u.id);
+
+  const publishedInRange = myPublished.filter(b => inRange(b.createdAt));
+  const acceptedInRange  = myAccepted.filter(b => inRange(b.acceptedAt));
+  const completedInRange = myAccepted.filter(b => b.status === 'completed' && inRange(b.completedAt));
+
+  const omsattning   = completedInRange.reduce((s, b) => s + (b.price || 0), 0);
+  const provBetald   = completedInRange.reduce((s, b) => s + (b.commission || 0), 0);
+  const netto        = omsattning - provBetald;
+
+  const periodOpts = ['week','month','year','all']
+    .map(p => `<option value="${p}" ${p===period?'selected':''}>${({week:'Denna vecka',month:'Denna månad',year:'Detta år',all:'Allt'})[p]}</option>`).join('');
+
+  mount(`
+    <h2>📊 Min statistik</h2>
+    <div class="card">
+      <form id="statsForm" class="btn-row" style="align-items:center">
+        <label class="muted">Period:</label>
+        <select name="period" id="periodSel">${periodOpts}</select>
+        <span class="muted">eller eget intervall:</span>
+        <input type="date" name="from" value="${customFrom||''}">
+        <input type="date" name="to" value="${customTo||''}">
+        <button type="submit">Filtrera</button>
+      </form>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="val">${publishedInRange.length}</div><div class="lbl">Publicerade uppdrag</div></div>
+      <div class="stat"><div class="val">${acceptedInRange.length}</div><div class="lbl">Accepterade uppdrag</div></div>
+      <div class="stat"><div class="val">${completedInRange.length}</div><div class="lbl">Utförda uppdrag</div></div>
+      <div class="stat"><div class="val">${fmtMoney(omsattning)}</div><div class="lbl">Omsättning</div></div>
+      ${canSeeCommission(u) ? `<div class="stat"><div class="val">${fmtMoney(provBetald)}</div><div class="lbl">Provision (betald)</div></div>
+      <div class="stat"><div class="val">${fmtMoney(netto)}</div><div class="lbl">Netto efter provision</div></div>` : ''}
+    </div>
+    <div class="card">
+      <h3>Utförda uppdrag i perioden</h3>
+      ${completedInRange.length === 0 ? `<div class="empty">Inga utförda uppdrag i vald period.</div>` : `<table>
+        <thead><tr><th>Datum</th><th>Från → Till</th><th>Pris</th>${canSeeCommission(u) ? '<th>Provision</th><th>Netto</th>' : ''}</tr></thead>
+        <tbody>${completedInRange.sort((a,b)=>(b.completedAt||0)-(a.completedAt||0)).map(b => `<tr>
+          <td>${fmtDate(b.completedAt)}</td>
+          <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
+          <td>${fmtMoney(b.price)}</td>
+          ${canSeeCommission(u) ? `<td>${fmtMoney(b.commission)}</td>
+          <td>${fmtMoney((b.price||0)-(b.commission||0))}</td>` : ''}
+        </tr>`).join('')}</tbody>
+      </table>`}
+    </div>
+  `);
+  document.getElementById('statsForm').onsubmit = e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const p = new URLSearchParams();
+    const fromV = f.get('from'), toV = f.get('to');
+    if (fromV && toV) { p.set('from', fromV); p.set('to', toV); }
+    else p.set('period', f.get('period'));
+    location.hash = '#/stats?' + p.toString();
+  };
+});
+
+// --------- Admin: Prenumerationer per åkare ---------
+// --------- Admin: Redigera prislista ---------
+route(/^\/admin\/pricing$/, async (_m, u) => {
+  if (!u || u.role !== 'admin') return navigate('/');
+  const renderEditor = () => {
+    mount(`
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <a href="#/settlement" class="btn secondary">← Tillbaka</a>
+        <h2 style="margin:0">💰 Redigera prislista</h2>
+      </div>
+      <div class="banner info">Här bestämmer du månadsavgiften per antal bilar. Ändringar gäller direkt för alla åkare (utom de med manuell månadsavgift satt på sitt konto). Moms (${(VAT_RATE*100).toFixed(0)}%) läggs på vid fakturering.</div>
+      <div class="card">
+        <table id="tiersTable">
+          <thead><tr><th>Min antal bilar</th><th>Max antal bilar</th><th>Pris/månad (kr exkl moms)</th><th>Inkl moms</th><th></th></tr></thead>
+          <tbody>
+            ${PRICING_TIERS.map((t, i) => `<tr data-i="${i}">
+              <td><input type="number" min="1" step="1" name="min" value="${esc(t.min)}" style="width:90px"></td>
+              <td><input type="number" min="1" step="1" name="max" value="${esc(t.max)}" style="width:90px"></td>
+              <td><input type="number" min="0" step="1" name="price" value="${esc(t.price)}" style="width:120px"> kr</td>
+              <td class="muted">${fmtMoney(t.price * (1 + VAT_RATE))}</td>
+              <td><button class="danger icon-btn" data-deltier="${i}" title="Ta bort">🗑</button></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+        <div class="btn-row" style="margin-top:12px">
+          <button id="addTierBtn" class="secondary">➕ Lägg till prisnivå</button>
+          <button id="saveTiersBtn" class="ok">💾 Spara prislista</button>
+          <button id="resetTiersBtn" class="danger">↺ Återställ till standard</button>
+        </div>
+        <p class="muted" style="margin-top:12px;font-size:12px">Standardvärden: ${DEFAULT_PRICING_TIERS.map(t => `${t.min}–${t.max} bilar: ${fmtMoney(t.price)}/mån`).join(' · ')}</p>
+      </div>
+    `);
+
+    document.getElementById('addTierBtn').onclick = () => {
+      const lastMax = PRICING_TIERS.length > 0 ? PRICING_TIERS[PRICING_TIERS.length - 1].max : 0;
+      PRICING_TIERS = [...PRICING_TIERS, { min: lastMax + 1, max: lastMax + 5, price: 0 }];
+      renderEditor();
+    };
+
+    document.querySelectorAll('button[data-deltier]').forEach(btn => {
+      btn.onclick = () => {
+        const i = Number(btn.dataset.deltier); // index i pricing-arrayen, fortfarande nummer
+        PRICING_TIERS = PRICING_TIERS.filter((_, j) => j !== i);
+        if (PRICING_TIERS.length === 0) PRICING_TIERS = [{ min: 1, max: 5, price: 0 }];
+        renderEditor();
+      };
+    });
+
+    document.getElementById('saveTiersBtn').onclick = () => {
+      try {
+        const rows = document.querySelectorAll('#tiersTable tbody tr');
+        const newTiers = [...rows].map(tr => ({
+          min: Number(tr.querySelector('input[name="min"]').value),
+          max: Number(tr.querySelector('input[name="max"]').value),
+          price: Number(tr.querySelector('input[name="price"]').value),
+        }));
+        // Validering
+        for (let i = 0; i < newTiers.length; i++) {
+          const t = newTiers[i];
+          if (isNaN(t.min) || isNaN(t.max) || isNaN(t.price)) throw new Error(`Rad ${i+1}: alla fält måste vara nummer`);
+          if (t.min < 1 || t.max < t.min) throw new Error(`Rad ${i+1}: min måste vara ≥ 1 och max ≥ min`);
+          if (t.price < 0) throw new Error(`Rad ${i+1}: pris kan inte vara negativt`);
+        }
+        // Kolla att intervallen inte överlappar
+        const sorted = [...newTiers].sort((a, b) => a.min - b.min);
+        for (let i = 1; i < sorted.length; i++) {
+          if (sorted[i].min <= sorted[i-1].max) throw new Error(`Intervallerna överlappar mellan ${sorted[i-1].min}-${sorted[i-1].max} och ${sorted[i].min}-${sorted[i].max}`);
+        }
+        savePricingTiers(newTiers);
+        toast('Prislistan sparad');
+        renderEditor();
+      } catch (err) {
+        toast('Fel: ' + err.message, 'err');
+      }
+    };
+
+    document.getElementById('resetTiersBtn').onclick = () => {
+      if (!confirm('Återställ prislistan till standardvärden?\n\n' + DEFAULT_PRICING_TIERS.map(t => `${t.min}–${t.max} bilar: ${t.price} kr/mån`).join('\n'))) return;
+      resetPricingTiers();
+      toast('Prislistan återställd');
+      renderEditor();
+    };
+  };
+  renderEditor();
+});
+
+route(/^\/settlement$/, async (_m, u) => {
+  if (!u || u.role !== 'admin') return navigate('/');
+
+  const allUsers = await db.all('users');
+  const haulers = allUsers.filter(x => x.role === 'akare');
+  const allVehicles = await db.all('vehicles');
+
+  const rows = await Promise.all(haulers.map(async h => {
+    const count = allVehicles.filter(v => v.haulerId === h.id).length;
+    const status = subscriptionStatusFor(h);
+    const daysLeft = trialDaysLeft(h);
+    const cost = monthlyCostFor(count, h);
+    return { hauler: h, vehicleCount: count, status, daysLeft, cost, tier: tierLabelFor(count) };
+  }));
+
+  const trialCount  = rows.filter(r => r.status === 'trial').length;
+  const paidCount   = rows.filter(r => r.status === 'paid').length;
+  const expiredCount= rows.filter(r => r.status === 'expired').length;
+  const totalRevenue= rows.filter(r => r.status === 'paid').reduce((s, r) => s + r.cost, 0);
+
+  const statusBadge = s => ({
+    trial:   '<span class="badge open">PROVPERIOD</span>',
+    paid:    '<span class="badge accepted">AKTIV</span>',
+    expired: '<span class="badge completed">UTGÅNGEN</span>',
+    none:    '<span class="muted">—</span>',
+  })[s] || '';
+
+  mount(`
+    <h2>💼 Prenumerationer</h2>
+    <div class="btn-row" style="margin-bottom:12px">
+      <a class="btn secondary" href="#/admin/pricing">💰 Redigera prislista</a>
+    </div>
+    <div class="banner info">Plattformen finansieras av månadsavgift baserat på antal registrerade bilar. Provision tas inte ut på enskilda körningar.</div>
+    <div class="stats">
+      <a class="stat" href="#/admin/subscriptions/all" style="text-decoration:none;color:inherit;cursor:pointer"><div class="val">${rows.length}</div><div class="lbl">Åkare totalt</div></a>
+      <a class="stat" href="#/admin/subscriptions/trial" style="text-decoration:none;color:inherit;cursor:pointer"><div class="val">${trialCount}</div><div class="lbl">På provperiod</div></a>
+      <a class="stat" href="#/admin/subscriptions/paid" style="text-decoration:none;color:inherit;cursor:pointer"><div class="val">${paidCount}</div><div class="lbl">Aktiva prenumeranter</div></a>
+      <a class="stat" href="#/admin/subscriptions/expired" style="text-decoration:none;color:inherit;cursor:pointer"><div class="val">${expiredCount}</div><div class="lbl">Utgångna</div></a>
+      <a class="stat" href="#/admin/subscriptions/revenue" style="text-decoration:none;color:inherit;cursor:pointer"><div class="val">${fmtMoney(totalRevenue)}</div><div class="lbl">Månadsintäkt (exkl moms)</div></a>
+    </div>
+    <div class="card">
+      ${rows.length === 0 ? `<div class="empty">Inga åkare registrerade.</div>` : `<table class="compact">
+        <thead><tr><th>Åkare</th><th>Företag</th><th>Antal bilar</th><th>Tariff</th><th>Månadsavgift</th><th>Status</th><th>Provperiod</th><th></th></tr></thead>
+        <tbody>${rows.map(r => `<tr>
+          <td>${esc(r.hauler.name)}</td>
+          <td>${esc(r.hauler.company || '')}</td>
+          <td>${r.vehicleCount}</td>
+          <td>${r.tier}</td>
+          <td><b>${r.cost > 0 ? fmtMoney(r.cost) + ' /mån' : '<span class="muted">—</span>'}</b><br><span class="muted" style="font-size:11px">+ moms ${(VAT_RATE*100).toFixed(0)}%</span></td>
+          <td>${statusBadge(r.status)}</td>
+          <td>${r.status === 'trial' ? r.daysLeft + ' dagar kvar' : (r.hauler.createdAt ? 'Slut: ' + new Date(trialEndsAt(r.hauler)).toLocaleDateString('sv-SE') : '—')}</td>
+          <td class="nowrap">
+            ${r.status !== 'paid' ? `<button class="btn ok icon-btn" data-activate="${r.hauler.id}" title="Aktivera prenumeration">✓ Aktivera</button>` : `<button class="btn secondary icon-btn" data-deactivate="${r.hauler.id}" title="Inaktivera">⏸ Pausa</button>`}
+            ${r.cost > 0 ? `<button class="btn secondary icon-btn print-inv" data-uid="${r.hauler.id}" title="Skapa faktura">📄</button>` : ''}
+          </td>
+        </tr>`).join('')}</tbody>
+      </table>`}
+    </div>
+  `);
+  document.querySelectorAll('button[data-activate]').forEach(btn => {
+    btn.onclick = async () => {
+      const uid = btn.dataset.activate;
+      const target = await db.get('users', uid);
+      target.subscriptionActive = true;
+      target.subscriptionActivatedAt = Date.now();
+      await db.put('users', target);
+      toast(`Prenumeration aktiverad för ${target.name}`);
+      navigate('/settlement');
+    };
+  });
+  document.querySelectorAll('button[data-deactivate]').forEach(btn => {
+    btn.onclick = async () => {
+      const uid = btn.dataset.deactivate;
+      if (!confirm('Pausa prenumerationen för den här åkaren?')) return;
+      const target = await db.get('users', uid);
+      target.subscriptionActive = false;
+      await db.put('users', target);
+      toast(`Prenumeration pausad för ${target.name}`);
+      navigate('/settlement');
+    };
+  });
+  document.querySelectorAll('.print-inv').forEach(btn => {
+    btn.onclick = () => {
+      const uid = btn.dataset.uid;
+      const r = rows.find(x => x.hauler.id === uid);
+      if (!r) return;
+      openSubscriptionInvoice(r);
+    };
+  });
+});
+
+// --------- Admin: Filtrerad prenumerationsvy (klickad från stat-ruta) ---------
+route(/^\/admin\/subscriptions\/(all|trial|paid|expired|revenue)$/, async (m, u) => {
+  if (!u || u.role !== 'admin') return navigate('/');
+  const filter = m[1];
+
+  const allUsers = await db.all('users');
+  const haulers = allUsers.filter(x => x.role === 'akare');
+  const allVehicles = await db.all('vehicles');
+
+  let rows = await Promise.all(haulers.map(async h => {
+    const count = allVehicles.filter(v => v.haulerId === h.id).length;
+    const status = subscriptionStatusFor(h);
+    const daysLeft = trialDaysLeft(h);
+    const cost = monthlyCostFor(count, h);
+    return { hauler: h, vehicleCount: count, status, daysLeft, cost, tier: tierLabelFor(count) };
+  }));
+
+  let title = '';
+  let helper = '';
+  if (filter === 'all') {
+    title = '👥 Alla åkare';
+    helper = `Översikt över samtliga ${rows.length} registrerade åkare.`;
+  } else if (filter === 'trial') {
+    rows = rows.filter(r => r.status === 'trial');
+    rows.sort((a, b) => a.daysLeft - b.daysLeft);
+    title = '🎁 Åkare på provperiod';
+    helper = `Åkare i sin kostnadsfria 14-dagarsperiod. Sorterade efter färst dagar kvar.`;
+  } else if (filter === 'paid') {
+    rows = rows.filter(r => r.status === 'paid');
+    title = '✅ Aktiva prenumeranter';
+    helper = `Betalande prenumeranter.`;
+  } else if (filter === 'expired') {
+    rows = rows.filter(r => r.status === 'expired');
+    title = '⚠ Utgångna prenumerationer';
+    helper = `Provperioden har gått ut och kontot är inte aktiverat. Aktivera via redigeringsknappen.`;
+  } else if (filter === 'revenue') {
+    rows = rows.filter(r => r.status === 'paid');
+    rows.sort((a, b) => b.cost - a.cost);
+    const total = rows.reduce((s, r) => s + r.cost, 0);
+    const totalInkl = total * (1 + VAT_RATE);
+    title = '💰 Månadsintäkt — fördelning';
+    helper = `Total: <b>${fmtMoney(total)}</b> exkl moms / <b>${fmtMoney(totalInkl)}</b> inkl moms. Sorterade efter högsta avgift först.`;
+  }
+
+  const statusBadge = s => ({
+    trial:   `<span class="badge open">PROVPERIOD</span>`,
+    paid:    '<span class="badge accepted">AKTIV</span>',
+    expired: '<span class="badge completed">UTGÅNGEN</span>',
+    none:    '<span class="muted">—</span>',
+  })[s] || '';
+
+  mount(`
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <a href="#/settlement" class="btn secondary">← Tillbaka</a>
+      <h2 style="margin:0">${title}</h2>
+    </div>
+    <div class="muted" style="margin-bottom:12px">${helper}</div>
+    <div class="card">
+      ${rows.length === 0 ? `<div class="empty">Inga åkare i denna kategori.</div>` : `<table class="compact">
+        <thead><tr>
+          <th>Åkare</th>
+          <th>Företag</th>
+          <th>E-post</th>
+          <th>Telefon</th>
+          <th>Antal bilar</th>
+          <th>Tariff</th>
+          <th>Månadsavgift</th>
+          <th>Status</th>
+          <th>${filter === 'trial' ? 'Dagar kvar' : 'Provperiod slut'}</th>
+          <th></th>
+        </tr></thead>
+        <tbody>${rows.map(r => `<tr>
+          <td><b>${esc(r.hauler.name)}</b></td>
+          <td>${esc(r.hauler.company || '—')}</td>
+          <td>${esc(r.hauler.email)}</td>
+          <td>${esc(r.hauler.phone || '—')}</td>
+          <td style="text-align:center">${r.vehicleCount}</td>
+          <td>${r.tier}</td>
+          <td><b>${r.cost > 0 ? fmtMoney(r.cost) + ' /mån' : '<span class="muted">—</span>'}</b><br><span class="muted" style="font-size:11px">+ moms = ${fmtMoney(r.cost * (1 + VAT_RATE))}</span></td>
+          <td>${statusBadge(r.status)}</td>
+          <td class="nowrap">${filter === 'trial' ? `<b>${r.daysLeft} dagar</b>` : (r.hauler.createdAt ? new Date(trialEndsAt(r.hauler)).toLocaleDateString('sv-SE') : '—')}</td>
+          <td class="nowrap">
+            <a class="btn secondary icon-btn" href="#/users/${r.hauler.id}/edit" title="Redigera">✏️</a>
+            ${r.cost > 0 ? `<button class="btn secondary icon-btn print-inv" data-uid="${r.hauler.id}" title="Skapa faktura">📄</button>` : ''}
+          </td>
+        </tr>`).join('')}</tbody>
+      </table>`}
+    </div>
+  `);
+  document.querySelectorAll('.print-inv').forEach(btn => {
+    btn.onclick = () => {
+      const uid = btn.dataset.uid;
+      const r = rows.find(x => x.hauler.id === uid);
+      if (!r) return;
+      openSubscriptionInvoice(r);
+    };
+  });
+});
+
+function openSubscriptionInvoice(r) {
+  const today = new Date();
+  const invoiceNo = `PR-${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}-${r.hauler.id}`;
+  const exMoms = r.cost;
+  const moms = Math.round(exMoms * VAT_RATE * 100) / 100;
+  const total = exMoms + moms;
+  const periodFrom = new Date(today.getFullYear(), today.getMonth(), 1).toLocaleDateString('sv-SE');
+  const periodTo   = new Date(today.getFullYear(), today.getMonth() + 1, 0).toLocaleDateString('sv-SE');
+  const due = new Date(today.getTime() + 30 * 86400000).toLocaleDateString('sv-SE');
+  const w = window.open('', '_blank');
+  w.document.write(`<!doctype html><html lang="sv"><head><meta charset="utf-8">
+    <title>Faktura ${invoiceNo}</title>
+    <style>
+      body{font-family:Arial,sans-serif;color:#111;max-width:800px;margin:32px auto;padding:0 24px}
+      h1{margin:0 0 4px;font-size:24px}
+      .muted{color:#666}
+      .row{display:flex;justify-content:space-between;margin:24px 0}
+      table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}
+      th,td{border-bottom:1px solid #ddd;padding:8px;text-align:left}
+      th{background:#f4f4f4}
+      .right{text-align:right}
+      .totals{margin-top:24px;padding:16px;background:#f8f8f8;border-radius:8px}
+      .totals div{display:flex;justify-content:space-between;margin:4px 0}
+      .totals .net{font-size:18px;font-weight:bold;border-top:2px solid #111;padding-top:8px;margin-top:8px}
+      @media print { .noprint{display:none} body{margin:0} }
+    </style></head><body>
+    <button class="noprint" onclick="window.print()" style="float:right;padding:8px 16px;cursor:pointer">🖨️ Skriv ut / Spara som PDF</button>
+    <h1>Faktura — Månadsprenumeration</h1>
+    <div class="muted">Fakturanr: ${invoiceNo} · Förfaller: ${due}</div>
+    <div class="row">
+      <div>
+        <b>Från:</b><br>
+        Östgöta Transport & Bemanning AB<br>
+        hittalast.se
+      </div>
+      <div>
+        <b>Till:</b><br>
+        ${esc(r.hauler.company || r.hauler.name)}<br>
+        ${esc(r.hauler.name)}<br>
+        ${esc(r.hauler.email)}<br>
+        ${esc(r.hauler.phone || '')}
+      </div>
+    </div>
+    <div><b>Faktureringsperiod:</b> ${periodFrom} – ${periodTo} &nbsp; <b>Datum:</b> ${today.toLocaleDateString('sv-SE')}</div>
+    <table>
+      <thead><tr><th>Beskrivning</th><th class="right">Antal</th><th class="right">Á-pris</th><th class="right">Belopp</th></tr></thead>
+      <tbody><tr>
+        <td>Månadsprenumeration hittalast.se<br><span class="muted" style="font-size:12px">Tariff: ${r.tier} (${r.vehicleCount} st registrerade bilar)</span></td>
+        <td class="right">1</td>
+        <td class="right">${fmtMoney(exMoms)}</td>
+        <td class="right">${fmtMoney(exMoms)}</td>
+      </tr></tbody>
+    </table>
+    <div class="totals">
+      <div><span>Summa exkl moms</span><span>${fmtMoney(exMoms)}</span></div>
+      <div><span>Moms (${(VAT_RATE*100).toFixed(0)}%)</span><span>${fmtMoney(moms)}</span></div>
+      <div class="net"><span>Att betala</span><span>${fmtMoney(total)}</span></div>
+    </div>
+    <p class="muted" style="margin-top:32px;font-size:12px">Tariffen baseras på antal aktiva bilar i ditt konto vid faktureringstillfället. Logga in på hittalast.se för aktuell information.</p>
+    </body></html>`);
+  w.document.close();
+}
+
+// --------- Prenumerationsöversikt (åkare ser sin egen) ---------
+route(/^\/subscription$/, async (_m, u) => {
+  if (!u) return navigate('/login');
+  if (u.role === 'chauffor') return navigate('/');
+  const target = await db.get('users', u.id);
+  const count = (await db.byIndex('vehicles', 'haulerId', u.id)).length;
+  const cost = monthlyCostFor(count, target);
+  const status = subscriptionStatusFor(target);
+  const daysLeft = trialDaysLeft(target);
+  const trialEnd = trialEndsAt(target);
+
+  const tierRow = (t, isMine) => `<tr ${isMine?'style="background:#fff3e0;font-weight:600"':''}>
+    <td>${t.min}–${t.max === 30 ? '30+' : t.max} bilar</td>
+    <td><b>${fmtMoney(t.price)}</b> / mån</td>
+    <td><span class="muted">+ moms ${(VAT_RATE*100).toFixed(0)}% = ${fmtMoney(t.price * (1 + VAT_RATE))}</span></td>
+  </tr>`;
+
+  const banner = status === 'trial'
+    ? `<div class="banner info">🎁 Du har <b>${daysLeft} ${daysLeft === 1 ? 'dag' : 'dagar'} kvar</b> av din kostnadsfria provperiod. Provperioden slutar ${new Date(trialEnd).toLocaleDateString('sv-SE')}.</div>`
+    : status === 'paid'
+    ? `<div class="banner ok">✓ Din prenumeration är <b>aktiv</b>.</div>`
+    : `<div class="banner err">⚠ Din provperiod har gått ut. Kontakta admin för att aktivera prenumerationen.</div>`;
+
+  mount(`
+    <h2>💳 Min prenumeration</h2>
+    ${banner}
+    <div class="stats">
+      <div class="stat"><div class="val">${count}</div><div class="lbl">Registrerade bilar</div></div>
+      <div class="stat"><div class="val">${tierLabelFor(count)}</div><div class="lbl">Aktuell tariff</div></div>
+      <div class="stat"><div class="val">${cost > 0 ? fmtMoney(cost) : '—'}</div><div class="lbl">Månadsavgift (exkl moms)</div></div>
+      <div class="stat"><div class="val">${cost > 0 ? fmtMoney(cost * (1 + VAT_RATE)) : '—'}</div><div class="lbl">Inkl moms ${(VAT_RATE*100).toFixed(0)}%</div></div>
+    </div>
+    <div class="card">
+      <h3>Prislista</h3>
+      <table>
+        <thead><tr><th>Antal bilar</th><th>Pris (exkl moms)</th><th>Inkl moms</th></tr></thead>
+        <tbody>${PRICING_TIERS.map(t => tierRow(t, count >= t.min && count <= t.max)).join('')}</tbody>
+      </table>
+      <p class="muted" style="margin-top:12px;font-size:12px">Tariffen justeras automatiskt när du lägger till eller tar bort bilar. Provperioden om 14 dagar är kostnadsfri och kräver inget kort.</p>
+    </div>
+  `);
+});
+
+// --------- Aviseringar ---------
+route(/^\/notifications$/, async (_m, u) => {
+  if (!u) return navigate('/login');
+  const all = await db.byIndex('notifications', 'userId', u.id);
+  all.sort((a, b) => b.createdAt - a.createdAt);
+  // markera alla som lästa när vyn öppnas
+  for (const n of all) { if (!n.read) { n.read = 1; await db.put('notifications', n); } }
+  _unreadCache = 0;
+  mount(`
+    <h2>Aviseringar (${all.length})</h2>
+    <div class="card">
+      ${all.length === 0 ? `<div class="empty">Inga aviseringar.</div>`
+      : `<table>
+          <thead><tr><th>När</th><th>Meddelande</th><th></th></tr></thead>
+          <tbody>
+          ${all.map(n => `<tr>
+            <td class="muted" style="font-size:12px;white-space:nowrap">${fmtDate(n.createdAt)}</td>
+            <td>${esc(n.message)}</td>
+            <td>${n.bookingId ? `<a class="btn secondary" href="#/booking/${n.bookingId}">Öppna</a>` : ''}</td>
+          </tr>`).join('')}
+          </tbody>
+        </table>`}
+    </div>
+  `);
+});
+
+// --------- Bokningsdetalj (köpare / åkare / admin) ---------
+route(/^\/booking\/([\w-]+)$/, async (m, u) => {
+  const id = m[1];
+  const b = await db.get('bookings', id);
+  if (!b) { toast('Bokningen finns inte', 'err'); return navigate('/'); }
+
+  let buyer = await db.get('users', b.buyerId);
+  if (!buyer) {
+    // Bokningen har en föråldrad uppdragsgivare (t.ex. från tidigare seed). Använd en placeholder.
+    buyer = { id: b.buyerId, name: '(borttagen användare)', email: '', phone: '', company: '' };
+  }
+  let hauler = b.haulerId ? await db.get('users', b.haulerId) : null;
+  if (b.haulerId && !hauler) {
+    hauler = { id: b.haulerId, name: '(borttagen åkare)', email: '', phone: '', company: '' };
+  }
+
+  // Access-regler
+  const isBuyer = u && u.id === b.buyerId;
+  const isAssignedHauler = u && hauler && u.id === hauler.id;
+  const isOtherHauler = u && canAcceptAndPost(u) && !isBuyer && !isAssignedHauler;
+  const isAdmin = u && u.role === 'admin';
+  let isDriver = false;
+  if (u && u.role === 'chauffor') {
+    const drv = await db.oneByIndex('drivers', 'email', u.email);
+    isDriver = !!(drv && b.driverId === drv.id);
+    if (!isDriver) { toast('Du är inte tilldelad denna körning', 'err'); return navigate('/'); }
+  }
+
+  if (!u) {
+    if (b.status !== 'open') { toast('Logga in för att se denna körning', 'err'); return navigate('/login'); }
+    return renderBookingDetail(b, buyer, null, null, { isBuyer:false, isAssignedHauler:false, isOtherHauler:false, isAdmin:false, isDriver:false, isPublic:true });
+  }
+
+  if (!isBuyer && !isAdmin && !isDriver && !canAcceptAndPost(u)) {
+    toast('Ingen åtkomst', 'err'); return navigate('/');
+  }
+  // Övriga inloggade kan se öppna och sina egna; inte andras accepterade
+  if (!isBuyer && !isAdmin && b.status !== 'open' && !isAssignedHauler) {
+    toast('Bokningen är inte längre tillgänglig', 'err'); return navigate('/');
+  }
+
+  try {
+    await renderBookingDetail(b, buyer, hauler, u, { isBuyer, isAssignedHauler, isOtherHauler, isAdmin, isDriver });
+  } catch (err) {
+    console.error('Booking detail-fel:', err);
+    document.getElementById('app').innerHTML = layout(`<div class="banner err">Kunde inte visa bokningen: ${esc(err.message || String(err))}</div><a class="btn" href="#/">← Tillbaka</a>`);
+  }
+});
+
+async function renderBookingDetail(b, buyer, hauler, me, ctx) {
+  const { isBuyer, isAssignedHauler, isOtherHauler, isAdmin, isDriver } = ctx;
+  const canSeeContacts = (b.status !== 'open') && (isBuyer || isAssignedHauler || isAdmin || isDriver);
+  const hideMoney = !!isDriver;
+  const assignedVehicle = b.vehicleId ? await db.get('vehicles', b.vehicleId) : null;
+  const assignedDriver = b.driverId ? await db.get('drivers', b.driverId) : null;
+  const bids = (b.status === 'open') ? await bidsForBooking(b.id) : [];
+  const myBid = me ? bids.find(x => x.haulerId === me.id && x.status === 'pending') : null;
+  const haulersById = {};
+  for (const x of bids) {
+    if (!haulersById[x.haulerId]) haulersById[x.haulerId] = await db.get('users', x.haulerId);
+  }
+
+  // kontaktuppgifter — visas bara när accept + toggle på
+  const buyerContact = canSeeContacts
+    ? `<dt>E-post</dt><dd>${esc(buyer.email)}</dd><dt>Telefon</dt><dd>${esc(buyer.phone)}</dd>`
+    : `<dt>Kontakt</dt><dd class="muted">Visas efter accept</dd>`;
+
+  const haulerContact = !hauler ? '' : (canSeeContacts
+    ? `<dt>E-post</dt><dd>${esc(hauler.email)}</dd><dt>Telefon</dt><dd>${esc(hauler.phone)}</dd>`
+    : `<dt>Kontakt</dt><dd class="muted">Visas efter accept</dd>`);
+
+  const bookingImgUrl = blobToUrl(b.bookingImageUrl || b.bookingImage);
+  const proofImgUrl = blobToUrl(b.proofImageUrl || b.proofImage);
+
+  let actions = '';
+  if (isOtherHauler && b.status === 'open') {
+    if (myBid) {
+      const last = latestBidAmount(myBid);
+      const lastBy = latestBidBy(myBid);
+      if (lastBy === 'buyer') {
+        actions = `
+          <div class="banner info"><b>Motbud från uppdragsgivaren:</b> ${fmtMoney(last)}</div>
+          <button id="acceptCounterBtn" class="ok" data-bid="${myBid.id}">✓ Acceptera ${fmtMoney(last)}</button>
+          <div class="field" style="max-width:260px;margin-top:8px"><label>Eller lägg ett nytt motbud (kr)</label>
+            <input type="number" id="newCounter" min="1" step="1"></div>
+          <button id="counterBackBtn" class="secondary" data-bid="${myBid.id}">↩ Skicka motbud</button>
+          <button id="withdrawBidBtn" class="danger" data-bid="${myBid.id}">Dra tillbaka bud</button>`;
+      } else {
+        actions = `
+          <div class="banner info">Du har lagt ett bud på <b>${fmtMoney(last)}</b>. Väntar på svar från uppdragsgivaren.</div>
+          <button id="withdrawBidBtn" class="danger" data-bid="${myBid.id}">Dra tillbaka bud</button>`;
+      }
+    } else if (b.price != null) {
+      actions = `
+        <div class="banner info">Uppdragsgivaren föreslår <b>${fmtMoney(b.price)}</b>. Du kan acceptera eller lägga ett motbud.</div>
+        <button id="acceptBtn" class="ok">✓ Acceptera ${fmtMoney(b.price)}</button>
+        <div class="field" style="max-width:260px;margin-top:10px"><label>Eller lägg ett motbud (kr, exkl. moms)</label>
+          <input type="number" id="bidAmount" min="1" step="1" placeholder="t.ex. ${Math.round(b.price * 1.1)}"></div>
+        <button id="placeBidBtn" class="secondary">💰 Lägg motbud</button>`;
+    } else {
+      actions = `
+        <div class="field" style="max-width:260px"><label>Lägg ett bud (kr, exkl. moms)</label>
+          <input type="number" id="bidAmount" min="1" step="1" placeholder="t.ex. 8500" required></div>
+        <button id="placeBidBtn" class="ok">💰 Lägg bud</button>`;
+    }
+  }
+  if (isAssignedHauler && b.status === 'accepted') {
+    actions = `
+      <div class="field" style="margin-top:12px">
+        <label>Ladda upp bild på fraktsedel</label>
+        <input type="file" id="proofFile" accept="image/*">
+      </div>
+      <button id="completeBtn" class="ok">✓ Markera som utförd</button>`;
+  }
+  if (isDriver && b.status === 'accepted') {
+    actions = `
+      <div class="field" style="margin-top:12px">
+        <label>Ladda upp bild på fraktsedel</label>
+        <input type="file" id="proofFile" accept="image/*">
+      </div>
+      <button id="completeBtn" class="ok">✓ Markera som utförd</button>`;
+  }
+  if (isBuyer && b.status === 'open') {
+    actions += ` <button id="cancelBtn" class="danger">Ta bort körning</button>`;
+  }
+
+  let bidsBlock = '';
+  if (isBuyer && b.status === 'open') {
+    if (bids.length === 0) {
+      bidsBlock = b.price == null
+        ? `<div class="card"><h3>Bud (0)</h3><div class="empty">Inga bud ännu. Vänta på att åkare lägger bud.</div></div>`
+        : '';
+    } else {
+      bidsBlock = `<div class="card"><h3>Inkomna bud (${bids.length})</h3>
+        ${b.price != null ? `<div class="muted" style="margin-bottom:8px">Ditt föreslagna pris: <b>${fmtMoney(b.price)}</b></div>` : ''}
+        <table>
+          <thead><tr><th>Åkare</th><th>Senaste bud</th><th>Status</th><th>Historik</th><th></th></tr></thead>
+          <tbody>
+          ${bids.map(bd => {
+            const h = haulersById[bd.haulerId];
+            const last = latestBidAmount(bd);
+            const lastBy = latestBidBy(bd);
+            const history = bd.rounds.map(r => `${r.by==='hauler'?'Åkare':'Du'}: ${fmtMoney(r.amount)}`).join(' → ');
+            const statusLabel = bd.status === 'pending'
+              ? (lastBy === 'hauler' ? 'Väntar på ditt svar' : 'Motbud skickat — väntar på åkare')
+              : bd.status;
+            const canAct = bd.status === 'pending' && lastBy === 'hauler';
+            return `<tr>
+              <td><b>${esc(h?.name || '?')}</b>${h?.company ? ' · ' + esc(h.company) : ''}</td>
+              <td><b>${fmtMoney(last)}</b></td>
+              <td>${esc(statusLabel)}</td>
+              <td class="muted" style="font-size:12px">${esc(history)}</td>
+              <td>${canAct ? `
+                <button class="ok" data-acceptbid="${bd.id}">✓ Acceptera ${fmtMoney(last)}</button>
+                <input type="number" min="1" step="1" data-counter-input="${bd.id}" placeholder="Motbud" style="width:110px;margin-left:6px">
+                <button class="secondary" data-counterbid="${bd.id}">↩ Motbud</button>
+                <button class="danger" data-rejectbid="${bd.id}">Avslå</button>` : ''}</td>
+            </tr>`;
+          }).join('')}
+          </tbody>
+        </table></div>`;
+    }
+  }
+
+  const haulerLabel = hauler ? esc(hauler.name) + (hauler.company ? ' (' + esc(hauler.company) + ')' : '') : 'okänd åkare';
+  const statusBanner =
+    b.status === 'open' ? `<div class="banner info">Körningen är <b>öppen</b>. Väntar på att en åkare ska acceptera.</div>`
+    : b.status === 'accepted' ? `<div class="banner ok">Körningen är <b>accepterad</b> av ${haulerLabel}.</div>`
+    : `<div class="banner warn">Körningen är <b>utförd</b> ${b.completedAt ? '(' + fmtDate(b.completedAt) + ')' : ''}.</div>`;
+
+  mount(`
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <a href="#/" class="btn secondary">← Tillbaka</a>
+      <h2 style="margin:0">Körning #${b.id}</h2>
+      <span class="badge ${b.status}" style="font-size:13px">${STATUS_LABEL[b.status]}</span>
+    </div>
+    ${statusBanner}
+    <div class="row">
+      <div class="card">
+        <h3>Detaljer</h3>
+        <dl class="kv">
+          <dt>Från</dt><dd><b>${esc(b.fromLocation)}</b>${b.fromPostal ? ' <span class="muted">(' + esc(b.fromPostal) + ')</span>' : ''}</dd>
+          <dt>Till</dt><dd><b>${esc(b.toLocation)}</b>${b.toPostal ? ' <span class="muted">(' + esc(b.toPostal) + ')</span>' : ''}</dd>
+          <dt>Lastning</dt><dd>${esc(b.loadDate)} ${esc(b.loadTime || '')}</dd>
+          <dt>Lossning</dt><dd>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</dd>
+          ${b.weight ? `<dt>Vikt</dt><dd>${esc(b.weight)} kg</dd>` : ''}
+          ${b.flm ? `<dt>Flakmeter (FLM)</dt><dd>${esc(b.flm)}</dd>` : ''}
+          ${b.pallets ? `<dt>Antal pall</dt><dd>${esc(b.pallets)} st</dd>` : ''}
+          <dt>Krav</dt><dd>
+            ${b.adr ? '<span class="badge feature">ADR</span>' : ''}
+            ${b.tailLift ? '<span class="badge feature">Bakgavellift</span>' : ''}
+            ${b.openSide ? '<span class="badge feature">Öppningsbar sida</span>' : ''}
+            ${!b.adr && !b.tailLift && !b.openSide ? '<span class="muted">Inga särskilda</span>' : ''}
+          </dd>
+          ${hideMoney ? '' : `<dt>Pris</dt><dd>${b.price == null ? '<span class="muted">Åkare föreslår pris</span>' : `<b>${fmtMoney(b.price)}</b>`}</dd>`}
+          ${b.description ? `<dt>Beskrivning</dt><dd>${esc(b.description)}</dd>` : ''}
+          <dt>Skapad</dt><dd>${fmtDate(b.createdAt)}</dd>
+          ${b.acceptedAt ? `<dt>Accepterad</dt><dd>${fmtDate(b.acceptedAt)}</dd>` : ''}
+          ${b.completedAt ? `<dt>Utförd</dt><dd>${fmtDate(b.completedAt)}</dd>` : ''}
+        </dl>
+        ${bookingImgUrl ? `<h3 style="margin-top:12px">Bild på bokning</h3><img src="${bookingImgUrl}" class="thumb">` : ''}
+        ${proofImgUrl ? `<h3 style="margin-top:12px">Fraktsedel</h3><img src="${proofImgUrl}" class="thumb">` : ''}
+      </div>
+      <div class="card">
+        <h3>Parter</h3>
+        <dl class="kv">
+          <dt>Uppdragsgivare</dt><dd><b>${esc(buyer.name)}</b>${buyer.company ? ' · ' + esc(buyer.company) : ''}</dd>
+          ${buyerContact}
+        </dl>
+        ${hauler ? `
+          <hr style="margin:14px 0;border:0;border-top:1px solid var(--line)">
+          <dl class="kv">
+            <dt>Utförande åkare</dt><dd><b>${esc(hauler.name)}</b>${hauler.company ? ' · ' + esc(hauler.company) : ''}</dd>
+            ${haulerContact}
+          </dl>` : ''}
+        <div class="btn-row">${actions}</div>
+      </div>
+    </div>
+    ${bidsBlock}
+    ${b.status !== 'open' ? `
+    <div class="card" id="assignment-card">
+      <h3>Tilldelning</h3>
+      <dl class="kv">
+        <dt>Bil</dt><dd>${assignedVehicle ? `<b>${esc(assignedVehicle.regNr)}</b>${assignedVehicle.model ? ' · ' + esc(assignedVehicle.model) : ''}` : '<span class="muted">Inte tilldelad ännu</span>'}</dd>
+        <dt>Chaufför</dt><dd>${assignedDriver ? `<b>${esc(assignedDriver.name)}</b>${assignedDriver.phone ? ' · ' + esc(assignedDriver.phone) : ''}` : '<span class="muted">Inte tilldelad ännu</span>'}</dd>
+      </dl>
+      ${(isAssignedHauler || isAdmin) && b.status === 'accepted' ? `
+        <div class="btn-row" style="margin-top:8px">
+          <button id="assignBtn" class="secondary">${(assignedVehicle || assignedDriver) ? 'Ändra tilldelning' : '🚚 Tilldela bil & chaufför'}</button>
+        </div>` : ''}
+    </div>` : ''}
+    ${(isDriver || ctx.isPublic) ? '' : `<div class="card" id="chat-card">
+      <h3>Intern chatt</h3>
+      <div id="chat-area"></div>
+    </div>`}
+  `);
+
+  if (document.getElementById('assignBtn')) {
+    document.getElementById('assignBtn').onclick = async () => {
+      const vehicles = await db.byIndex('vehicles', 'haulerId', me.id);
+      const drivers = await db.byIndex('drivers', 'haulerId', me.id);
+      const activeDrivers = drivers.filter(d => d.active !== false);
+      if (vehicles.length === 0 || activeDrivers.length === 0) {
+        toast('Lägg till minst en bil och en aktiv chaufför först', 'err');
+        return;
+      }
+      const card = document.getElementById('assignment-card');
+      card.innerHTML = `
+        <h3>Tilldela bil & chaufför</h3>
+        <form id="assignForm">
+          <div class="row">
+            <div class="field"><label>Bil</label>
+              <select name="vehicleId" required>
+                <option value="">— välj —</option>
+                ${vehicles.map(v => `<option value="${v.id}" ${b.vehicleId===v.id?'selected':''}>${esc(v.regNr)} ${esc(v.model || '')}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field"><label>Chaufför</label>
+              <select name="driverId" required>
+                <option value="">— välj —</option>
+                ${activeDrivers.map(d => `<option value="${d.id}" ${b.driverId===d.id?'selected':''}>${esc(d.name)}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button type="submit">Spara tilldelning</button>
+            <button type="button" id="assignCancel" class="secondary">Avbryt</button>
+          </div>
+        </form>`;
+      document.getElementById('assignCancel').onclick = () => navigate('/booking/' + b.id);
+      document.getElementById('assignForm').onsubmit = async e => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        const fresh = await db.get('bookings', b.id);
+        fresh.vehicleId = f.get('vehicleId') || null;
+        fresh.driverId = f.get('driverId') || null;
+        fresh.assignedAt = new Date().toISOString();
+        await db.put('bookings', fresh);
+        toast('Tilldelning sparad');
+        navigate('/booking/' + b.id);
+      };
+    };
+  }
+
+  // Bind actions
+  if (document.getElementById('acceptBtn')) {
+    document.getElementById('acceptBtn').onclick = async () => {
+      try {
+        if (!me || !me.id) { toast('Du måste vara inloggad', 'err'); return navigate('/login'); }
+        const fresh = await db.get('bookings', b.id);
+        if (!fresh) { toast('Bokningen finns inte', 'err'); return navigate('/'); }
+        if (fresh.status !== 'open') { toast('Körningen är redan accepterad', 'err'); return navigate('/'); }
+        fresh.status = 'accepted';
+        fresh.haulerId = me.id;
+        fresh.acceptedAt = Date.now();
+        fresh.commission = commissionFor(fresh.price);
+        fresh.contactVisible = true;
+        await db.put('bookings', fresh);
+        await notify(fresh.buyerId, { type:'accepted', bookingId: fresh.id, message: `${me.name} har accepterat din körning ${fresh.fromLocation} → ${fresh.toLocation}.` });
+        toast('Uppdrag accepterat. Kontaktuppgifter visas nu.');
+        navigate('/booking/' + fresh.id);
+      } catch (err) {
+        console.error('Accept-fel:', err);
+        toast('Kunde inte acceptera: ' + (err.message || err), 'err');
+      }
+    };
+  }
+
+  // Bud-actions (åkare som lägger bud)
+  const placeBidBtn = document.getElementById('placeBidBtn');
+  if (placeBidBtn) {
+    placeBidBtn.onclick = async () => {
+      try {
+        if (!me || !me.id) { toast('Du måste vara inloggad', 'err'); return navigate('/login'); }
+        const amountEl = document.getElementById('bidAmount');
+        const amount = Number(amountEl && amountEl.value);
+        if (!amount || amount <= 0) { toast('Ange ett giltigt belopp', 'err'); return; }
+        const fresh = await db.get('bookings', b.id);
+        if (!fresh) { toast('Bokningen finns inte', 'err'); return navigate('/'); }
+        if (fresh.status !== 'open') { toast('Körningen är inte längre öppen', 'err'); return navigate('/'); }
+        await db.add('bids', {
+          bookingId: b.id, haulerId: me.id,
+          rounds: [{ by:'hauler', amount, at: Date.now() }],
+          status: 'pending',
+          createdAt: Date.now(),
+        });
+        await notify(b.buyerId, { type:'new_bid', bookingId: b.id, message: `Nytt bud (${fmtMoney(amount)}) från ${me.name} på ${b.fromLocation} → ${b.toLocation}.` });
+        toast('Bud skickat — uppdragsgivaren har aviserats');
+        navigate('/booking/' + b.id);
+      } catch (err) {
+        console.error('Bud-fel:', err);
+        toast('Kunde inte lägga bud: ' + (err.message || err), 'err');
+      }
+    };
+  }
+  const acceptCounterBtn = document.getElementById('acceptCounterBtn');
+  if (acceptCounterBtn) {
+    acceptCounterBtn.onclick = async () => {
+      try {
+        if (!me || !me.id) { toast('Du måste vara inloggad', 'err'); return navigate('/login'); }
+        const bid = await db.get('bids', acceptCounterBtn.dataset.bid);
+        if (!bid) { toast('Budet hittas inte', 'err'); return; }
+        const amount = latestBidAmount(bid);
+        const fresh = await db.get('bookings', b.id);
+        if (!fresh || fresh.status !== 'open') { toast('Körningen är inte längre öppen', 'err'); return navigate('/'); }
+        fresh.status = 'accepted'; fresh.haulerId = me.id;
+        fresh.price = amount;
+        fresh.acceptedAt = Date.now();
+        fresh.commission = commissionFor(amount);
+        fresh.contactVisible = true;
+        await db.put('bookings', fresh);
+        bid.status = 'accepted';
+        await db.put('bids', bid);
+        const others = await bidsForBooking(b.id);
+        for (const o of others) {
+          if (o.id !== bid.id && o.status === 'pending') {
+            o.status = 'rejected';
+            await db.put('bids', o);
+            await notify(o.haulerId, { type:'bid_rejected', bookingId: b.id, message: `Ditt bud på ${b.fromLocation} → ${b.toLocation} avslogs (uppdraget gick till annan åkare).` });
+          }
+        }
+        await notify(b.buyerId, { type:'accepted', bookingId: b.id, message: `${me.name} accepterade ditt motbud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation}.` });
+        toast('Motbud accepterat. Kontaktuppgifter visas nu.');
+        navigate('/booking/' + b.id);
+      } catch (err) {
+        console.error('Accept-counter-fel:', err);
+        toast('Kunde inte acceptera motbud: ' + (err.message || err), 'err');
+      }
+    };
+  }
+  const counterBackBtn = document.getElementById('counterBackBtn');
+  if (counterBackBtn) {
+    counterBackBtn.onclick = async () => {
+      try {
+        const amount = Number((document.getElementById('newCounter') || {}).value);
+        if (!amount || amount <= 0) { toast('Ange ett giltigt belopp', 'err'); return; }
+        const bid = await db.get('bids', counterBackBtn.dataset.bid);
+        if (!bid) { toast('Budet hittas inte', 'err'); return; }
+        bid.rounds.push({ by:'hauler', amount, at: Date.now() });
+        await db.put('bids', bid);
+        await notify(b.buyerId, { type:'counter', bookingId: b.id, message: `${me.name} svarade med motbud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation}.` });
+        toast('Motbud skickat');
+        navigate('/booking/' + b.id);
+      } catch (err) {
+        console.error('Motbud-fel:', err);
+        toast('Kunde inte skicka motbud: ' + (err.message || err), 'err');
+      }
+    };
+  }
+  const withdrawBidBtn = document.getElementById('withdrawBidBtn');
+  if (withdrawBidBtn) {
+    withdrawBidBtn.onclick = async () => {
+      if (!confirm('Dra tillbaka ditt bud?')) return;
+      const bid = await db.get('bids', withdrawBidBtn.dataset.bid);
+      bid.status = 'withdrawn';
+      await db.put('bids', bid);
+      await notify(b.buyerId, { type:'bid_withdrawn', bookingId: b.id, message: `${me.name} drog tillbaka sitt bud på ${b.fromLocation} → ${b.toLocation}.` });
+      toast('Bud tillbakadraget');
+      navigate('/booking/' + b.id);
+    };
+  }
+
+  // Buyer-actions: acceptera bud / motbud / avslå
+  document.querySelectorAll('button[data-acceptbid]').forEach(btn => {
+    btn.onclick = async () => {
+      const bid = await db.get('bids', btn.dataset.acceptbid);
+      const amount = latestBidAmount(bid);
+      const fresh = await db.get('bookings', b.id);
+      if (fresh.status !== 'open') { toast('Körningen är inte längre öppen', 'err'); return navigate('/'); }
+      fresh.status = 'accepted';
+      fresh.haulerId = bid.haulerId;
+      fresh.price = amount;
+      fresh.acceptedAt = Date.now();
+      fresh.commission = commissionFor(amount);
+      fresh.contactVisible = true;
+      await db.put('bookings', fresh);
+      bid.status = 'accepted';
+      await db.put('bids', bid);
+      const all = await bidsForBooking(b.id);
+      for (const o of all) {
+        if (o.id !== bid.id && o.status === 'pending') {
+          o.status = 'rejected';
+          await db.put('bids', o);
+          await notify(o.haulerId, { type:'bid_rejected', bookingId: b.id, message: `Ditt bud på ${b.fromLocation} → ${b.toLocation} avslogs (uppdraget gick till annan åkare).` });
+        }
+      }
+      await notify(bid.haulerId, { type:'bid_accepted', bookingId: b.id, message: `Ditt bud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation} accepterades. Kontaktuppgifter är nu synliga.` });
+      toast('Bud accepterat — körningen tilldelad');
+      navigate('/booking/' + b.id);
+    };
+  });
+  document.querySelectorAll('button[data-counterbid]').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.dataset.counterbid;
+      const inp = document.querySelector(`input[data-counter-input="${id}"]`);
+      const amount = Number(inp && inp.value);
+      if (!amount || amount <= 0) { toast('Ange ett giltigt motbud', 'err'); return; }
+      const bid = await db.get('bids', id);
+      bid.rounds.push({ by:'buyer', amount, at: Date.now() });
+      await db.put('bids', bid);
+      await notify(bid.haulerId, { type:'counter', bookingId: b.id, message: `Uppdragsgivaren skickade motbud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation}.` });
+      toast('Motbud skickat');
+      navigate('/booking/' + b.id);
+    };
+  });
+  document.querySelectorAll('button[data-rejectbid]').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('Avslå budet?')) return;
+      const bid = await db.get('bids', btn.dataset.rejectbid);
+      bid.status = 'rejected';
+      await db.put('bids', bid);
+      await notify(bid.haulerId, { type:'bid_rejected', bookingId: b.id, message: `Ditt bud på ${b.fromLocation} → ${b.toLocation} avslogs.` });
+      toast('Bud avslaget');
+      navigate('/booking/' + b.id);
+    };
+  });
+  if (document.getElementById('completeBtn')) {
+    document.getElementById('completeBtn').onclick = async () => {
+      try {
+        const proofFile = document.getElementById('proofFile').files[0];
+        if (!proofFile) { toast('Ladda upp bild på fraktsedel först', 'err'); return; }
+        const proofUrl = await uploadImage(proofFile, 'proof-images');
+        const fresh = await db.get('bookings', b.id);
+        fresh.status = 'completed';
+        fresh.completedAt = new Date().toISOString();
+        fresh.proofImageUrl = proofUrl;
+        delete fresh.proofImage;
+        delete fresh.bookingImage;
+        if (isDriver) fresh.completedByDriverId = me.id;
+        await db.put('bookings', fresh);
+        await notify(fresh.buyerId, { type:'completed', bookingId: fresh.id, message: `${me.name} har utfört körningen ${fresh.fromLocation} → ${fresh.toLocation}.` });
+        toast('Uppdrag markerat som utfört');
+        navigate('/booking/' + fresh.id);
+      } catch (err) {
+        console.error('Complete-fel:', err);
+        toast('Kunde inte markera som utförd: ' + (err.message || err), 'err');
+      }
+    };
+  }
+  if (document.getElementById('toggleContactBtn')) {
+    document.getElementById('toggleContactBtn').onclick = async () => {
+      const fresh = await db.get('bookings', b.id);
+      fresh.contactVisible = !fresh.contactVisible;
+      await db.put('bookings', fresh);
+      navigate('/booking/' + fresh.id);
+    };
+  }
+  if (document.getElementById('cancelBtn')) {
+    document.getElementById('cancelBtn').onclick = async () => {
+      if (!confirm('Ta bort körningen permanent?')) return;
+      await db.del('bookings', b.id);
+      const msgs = await db.byIndex('messages', 'bookingId', b.id);
+      for (const m of msgs) await db.del('messages', m.id);
+      toast('Körning borttagen');
+      navigate('/');
+    };
+  }
+
+  if (!isDriver && !ctx.isPublic) await renderChat(b, buyer, hauler, me, ctx);
+}
+
+// --------- Chatt ---------
+// Trådmodell: (bookingId, haulerId) — en tråd per åkare som skriver med köparen.
+// När bokningen är accepterad finns bara den accepterade åkarens tråd.
+async function renderChat(b, buyer, hauler, me, ctx) {
+  const area = document.getElementById('chat-area');
+  const { isBuyer, isAssignedHauler, isOtherHauler, isAdmin } = ctx;
+
+  if (b.status === 'open' && isBuyer) {
+    // Köparen: visa trådlista (en per åkare som skrivit)
+    const all = await db.byIndex('messages', 'bookingId', b.id);
+    const byHauler = {};
+    all.forEach(m => {
+      const hid = m.haulerId;
+      (byHauler[hid] = byHauler[hid] || []).push(m);
+    });
+    const haulerIds = Object.keys(byHauler).map(Number);
+    if (haulerIds.length === 0) {
+      area.innerHTML = `<div class="muted">Inga åkare har kontaktat dig om denna körning ännu.</div>`;
+      return;
+    }
+    const haulers = await Promise.all(haulerIds.map(id => db.get('users', id)));
+    const dealClosed = b.status !== 'open';
+    area.innerHTML = `
+      <div class="chat-thread-list" id="thread-list">
+        ${haulers.map((h, i) => `<div class="thread-item" data-hid="${h.id}">
+          <b>${dealClosed ? esc(h.name) : 'Åkare ' + String.fromCharCode(66 + i)}</b>${dealClosed && h.company ? ' · ' + esc(h.company) : ''}
+          <div class="muted" style="font-size:11px;margin-top:2px">${byHauler[h.id].length} meddelanden</div>
+        </div>`).join('')}
+      </div>
+      <div id="thread-body"></div>
+    `;
+    const pickHauler = async hid => {
+      document.querySelectorAll('.thread-item').forEach(el => el.classList.toggle('active', el.dataset.hid === hid));
+      await renderChatThread(b, buyer, await db.get('users', hid), me, ctx);
+    };
+    document.querySelectorAll('.thread-item').forEach(el => el.onclick = () => pickHauler(el.dataset.hid));
+    await pickHauler(haulerIds[0]);
+    return;
+  }
+
+  // Annars: rak tråd
+  let threadHauler = hauler;
+  if (isOtherHauler) threadHauler = me; // åkare som skriver om en öppen bokning → deras egen tråd
+  if (!threadHauler) {
+    area.innerHTML = `<div class="muted">Ingen chatt ännu.</div>`;
+    return;
+  }
+  await renderChatThread(b, buyer, threadHauler, me, ctx);
+}
+
+async function renderChatThread(b, buyer, threadHauler, me, ctx) {
+  const { isBuyer, isAdmin } = ctx;
+  const body = document.getElementById('thread-body') || document.getElementById('chat-area');
+  const msgs = (await db.byIndex('messages', 'bookingId', b.id)).filter(m => m.haulerId === threadHauler.id);
+  msgs.sort((a, b) => a.createdAt - b.createdAt);
+
+  const users = {};
+  users[buyer.id] = buyer;
+  users[threadHauler.id] = threadHauler;
+
+  const dealClosed = b.status !== 'open';
+  const canWrite = !isAdmin && b.status !== 'completed' && (
+    me.id === buyer.id ||
+    me.id === threadHauler.id
+  );
+
+  // Pseudonym före accept: A för uppdragsgivare, B för motparten
+  const aliasFor = (uid) => {
+    if (dealClosed) return users[uid]?.name || '?';
+    if (uid === buyer.id) return 'Uppdragsgivare A';
+    if (uid === threadHauler.id) return 'Åkare B';
+    return 'Användare';
+  };
+
+  body.innerHTML = `
+    ${!dealClosed ? `<div class="banner warn" style="margin-bottom:10px">⚠ Anonym chatt: namn, företag, telefon, e-post och webbadresser döljs automatiskt tills uppdraget är accepterat.</div>` : ''}
+    <div class="chat" id="chat-box">
+      ${msgs.length === 0 ? `<div class="muted" style="text-align:center;padding:20px">Inga meddelanden ännu</div>` : ''}
+      ${msgs.map(m => {
+        const isMe = m.senderId === me.id;
+        const who = aliasFor(m.senderId);
+        let txt = m.content;
+        if (!dealClosed && m.senderId !== me.id) {
+          const knownNames = [buyer.name, buyer.company, threadHauler.name, threadHauler.company].filter(Boolean);
+          txt = detectContact(txt, knownNames).masked;
+        }
+        return `<div class="msg ${isMe ? 'me' : 'them'}">
+          <div class="who">${esc(who)}</div>
+          <div>${esc(txt)}</div>
+          <div class="ts">${fmtDate(m.createdAt)}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    ${canWrite ? `
+      <div class="chat-input">
+        <textarea id="chat-txt" placeholder="Skriv ett meddelande..."></textarea>
+        <button id="chat-send">Skicka</button>
+      </div>
+      <div id="chat-warn" class="banner err" style="display:none;margin-top:6px"></div>` : (isAdmin ? `<div class="muted" style="margin-top:8px;font-size:12px">Du ser chatten som admin men kan inte skriva.</div>` : '')}
+  `;
+
+  const box = document.getElementById('chat-box');
+  box.scrollTop = box.scrollHeight;
+
+  const send = async () => {
+    const raw = document.getElementById('chat-txt').value.trim();
+    if (!raw) return;
+    if (!dealClosed) {
+      const knownNames = [buyer.name, buyer.company, threadHauler.name, threadHauler.company].filter(Boolean);
+      const det = detectContact(raw, knownNames);
+      if (det.hits.length > 0) {
+        const w = document.getElementById('chat-warn');
+        w.style.display = '';
+        w.innerHTML = `🚫 Det är inte tillåtet att dela kontaktuppgifter (${det.hits.join(', ')}) i chatten innan uppdraget är accepterat. Meddelandet skickades inte.`;
+        return;
+      }
+    }
+    await db.add('messages', {
+      bookingId: b.id,
+      haulerId: threadHauler.id,
+      senderId: me.id,
+      content: raw,
+      createdAt: Date.now(),
+    });
+    // Notifiera motparten
+    const recipient = me.id === buyer.id ? threadHauler.id : buyer.id;
+    await notify(recipient, { type:'new_message', bookingId: b.id, message: `Nytt meddelande från ${aliasFor(me.id)} i chatt om ${b.fromLocation} → ${b.toLocation}.` });
+    document.getElementById('chat-txt').value = '';
+    renderChatThread(b, buyer, threadHauler, me, ctx);
+  };
+  if (document.getElementById('chat-send')) {
+    document.getElementById('chat-send').onclick = send;
+    document.getElementById('chat-txt').onkeydown = e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    };
+  }
+}
+
+// --------- Start ---------
+(async () => {
+  try {
+    await refreshSession();
+    // Lyssna på auth-ändringar (login/logout i annan flik etc.)
+    sb.auth.onAuthStateChange(async (event, session) => {
+      await refreshSession();
+      render();
+    });
+    render();
+  } catch (e) {
+    console.error('Init-fel:', e);
+    document.getElementById('app').innerHTML = '<main><div class="card"><h2>Fel vid uppstart</h2><pre>' + (e.message || e) + '</pre></div></main>';
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+# Lokala dev-filer som inte ska deployas till Vercel
+sync.ps1
+start.bat
+auto-bookings.json
+_emails.json
+_emails-live.json
+demo-bookings.json
+supabase-schema.sql
+node_modules
+.DS_Store
+*.log
+.env
+.env.local

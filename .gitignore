@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build / OS
+.DS_Store
+Thumbs.db
+*.log
+
+# Local credentials & dev
+.env
+.env.local
+.env.development.local
+.env.production.local
+
+# Vercel
+.vercel
+
+# Lokala dev-script som inte ska delas
+sync.ps1
+start.bat
+
+# Auto-genererade datafiler
+auto-bookings.json
+_emails.json
+_emails-live.json
+demo-bookings.json
