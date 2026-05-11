@@ -1076,7 +1076,6 @@ async function publicDashboard() {
             <span class="landing-logo-mark">🚚</span>
             <span>hittalast.se</span>
           </a>
-          <a class="landing-staff" id="landing-staff">Personalingång →</a>
         </nav>
 
         <div class="landing-hero">
@@ -1087,10 +1086,10 @@ async function publicDashboard() {
               Sveriges nya marknadsplats för åkerier och speditörer. Matcha lediga lastbilar med körningar, förhandla pris direkt och få returlast på vägen hem — utan provision på enskilda transporter.
             </p>
             <ul class="landing-bullets">
-              <li>Fast månadsavgift — ingen provision</li>
+              <li>Fast månadsavgift</li>
               <li>14 dagars gratis provperiod</li>
               <li>Ditt företag äger relationerna</li>
-              <li>Bygg i Sverige · GDPR-säker</li>
+              <li>Byggt i Sverige · GDPR-säker</li>
             </ul>
             <div class="countdown" id="countdown">${renderCountdown()}</div>
           </div>
@@ -1147,7 +1146,7 @@ async function publicDashboard() {
           <div class="feature">
             <span class="feature-icon">💬</span>
             <h3>Förhandla via chatt</h3>
-            <p>Anonym chatt och bud-system. Kontaktuppgifter visas först efter accept — ingen kringgår plattformen.</p>
+            <p>Anonym chatt och bud-system. Kontaktuppgifter visas först efter accept.</p>
           </div>
           <div class="feature">
             <span class="feature-icon">📄</span>
@@ -1157,8 +1156,7 @@ async function publicDashboard() {
         </div>
 
         <div class="landing-footer">
-          © 2026 hittalast.se &middot; En tjänst från Östgöta Transport & Bemanning AB &middot;
-          <a href="#" id="landing-staff-bottom" style="color:rgba(255,255,255,.7)">Personalingång</a>
+          © 2026 hittalast.se &middot; En tjänst från Östgöta Transport & Bemanning AB
         </div>
       </div>
     </div>
@@ -1172,12 +1170,7 @@ async function publicDashboard() {
     el.innerHTML = renderCountdown();
   }, 1000);
 
-  // Personalingång → login
-  const goLogin = e => { e.preventDefault(); navigate('/login'); };
-  document.getElementById('landing-staff').onclick = goLogin;
-  document.getElementById('landing-staff-bottom').onclick = goLogin;
-
-  // 5-klick på logotypen för dold admin-ingång
+  // Dold admin-ingång: klicka logotypen 5 gånger för att komma till login
   let logoClicks = 0;
   document.getElementById('landing-logo-tap').onclick = () => {
     logoClicks++;
