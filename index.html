@@ -95,6 +95,26 @@
   .stat .val{font-size:22px;font-weight:600}
   .stat .lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-top:2px}
 
+  /* ============== Bud-fält & counter-input (skalbara) ============== */
+  .bid-field{max-width:260px;width:100%}
+  @media (max-width:600px){.bid-field{max-width:none}}
+  .counter-inp{width:110px;margin-left:6px;display:inline-block}
+  @media (max-width:600px){.counter-inp{width:100%;margin-left:0;margin-top:6px;display:block}}
+
+  /* Admin pricing-table inputs */
+  .pricing-min,.pricing-max{width:90px;max-width:100%}
+  .pricing-price{width:120px;max-width:100%}
+
+  /* ============== Bell-länk ============== */
+  .bell-link{position:relative;margin:0 6px;display:inline-flex;align-items:center}
+  .bell-link .label{display:none}
+  .bell-badge{position:absolute;top:-6px;right:-10px;background:#e11;color:#fff;border-radius:10px;padding:1px 6px;font-size:11px}
+  @media (max-width:600px){
+    .bell-link{margin:0;display:flex}
+    .bell-link .label{display:inline}
+    .bell-badge{position:static;margin-left:auto}
+  }
+
   /* ============== HAMBURGARMENY (mobil) ============== */
   .hamburger{display:none;background:transparent;border:0;width:40px;height:40px;padding:8px;cursor:pointer;margin-left:auto;flex-direction:column;justify-content:space-between;align-items:stretch}
   .hamburger span{display:block;height:3px;background:#fff;border-radius:2px;transition:transform .2s,opacity .2s}
@@ -112,8 +132,6 @@
   .landing-nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:60px}
   .landing-logo{font-size:24px;font-weight:700;letter-spacing:-.5px;display:flex;align-items:center;gap:8px;cursor:pointer;color:#fff;text-decoration:none}
   .landing-logo-mark{display:inline-block;width:36px;height:36px;background:#fff;border-radius:10px;color:var(--brand);display:inline-flex;align-items:center;justify-content:center;font-size:22px}
-  .landing-staff{font-size:13px;color:rgba(255,255,255,.55);text-decoration:none;cursor:pointer}
-  .landing-staff:hover{color:rgba(255,255,255,.85)}
   .landing-hero{display:grid;grid-template-columns:1.2fr 1fr;gap:48px;align-items:center}
   .landing-eyebrow{display:inline-block;background:rgba(255,255,255,.12);padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600;letter-spacing:.4px;margin-bottom:18px;backdrop-filter:blur(6px)}
   .landing-h1{font-size:clamp(32px,5vw,52px);line-height:1.08;margin:0 0 18px;font-weight:700;letter-spacing:-.8px}
@@ -264,7 +282,7 @@
 // =====================================================================
 // TRANSPORTPLATTFORM — MVP (single-file, IndexedDB)
 // Roller: åkare (kan både publicera och acceptera), chaufför, admin
-// Flöde: skapa körning → åkare accepterar → chatt → utfört → provision 8%
+// Flöde: skapa körning → åkare accepterar → chatt → utfört. Affärsmodell: månadsabonnemang, ingen provision.
 // =====================================================================
 
 // --------- Supabase-anslutning ---------
@@ -933,7 +951,7 @@ function layout(inner) {
   const u = currentUser();
   const navLinks = u ? roleNav(u) : publicNav();
   const unread = u ? _unreadCache : 0;
-  const bell = u ? `<a href="#/notifications" title="Aviseringar" style="position:relative;margin:0 6px">🔔${unread>0?`<span style="position:absolute;top:-6px;right:-10px;background:#e11;color:#fff;border-radius:10px;padding:1px 6px;font-size:11px">${unread}</span>`:''}</a>` : '';
+  const bell = u ? `<a href="#/notifications" title="Aviseringar" class="bell-link">🔔<span class="label" style="margin-left:6px">Aviseringar</span>${unread>0?`<span class="bell-badge">${unread}</span>`:''}</a>` : '';
   const userBlock = u ? `<span class="who">${esc(u.name)} · ${ROLE_LABEL[u.role]}</span>
                <a href="#" id="logout-link"><span class="label">Logga ut</span> ↩</a>` : '';
   return `
@@ -1200,7 +1218,7 @@ async function publicDashboard() {
         </div>
 
         <div class="landing-footer">
-          © 2026 hittalast.se &middot; från hittalast AB
+          © 2026 hittalast.se &middot; från Hitta Last Sverige AB
         </div>
       </div>
     </div>
@@ -2210,19 +2228,24 @@ async function adminDashboard(u) {
     b._buyerName = byId[b.buyerId]?.name;
     b._haulerName = b.haulerId ? byId[b.haulerId]?.name : null;
   });
-  bookings.sort((a, b) => b.createdAt - a.createdAt);
+  bookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  const totalCommission = bookings.filter(b => b.status === 'completed').reduce((s, b) => s + b.commission, 0);
-  const pendingCommission = bookings.filter(b => b.status === 'accepted').reduce((s, b) => s + b.commission, 0);
+  const openCount = bookings.filter(b => b.status === 'open').length;
+  const activeCount = bookings.filter(b => b.status === 'accepted').length;
+  const completedCount = bookings.filter(b => b.status === 'completed').length;
+  // Räkna anmälningar på väntelistan
+  const { count: waitlistCount } = await sb.from('waitlist').select('*', { count: 'exact', head: true });
 
   mount(`
     <h2>Admin — översikt</h2>
     <div class="stats">
-      <div class="stat"><div class="val">${bookings.length}</div><div class="lbl">Körningar totalt</div></div>
       <div class="stat"><div class="val">${users.length}</div><div class="lbl">Användare</div></div>
-      <div class="stat"><div class="val">${fmtMoney(pendingCommission)}</div><div class="lbl">Upparbetad provision</div></div>
-      <div class="stat"><div class="val">${fmtMoney(totalCommission)}</div><div class="lbl">Intjänad provision</div></div>
+      <div class="stat"><div class="val">${waitlistCount || 0}</div><div class="lbl">Väntelista</div></div>
+      <div class="stat"><div class="val">${openCount}</div><div class="lbl">Öppna körningar</div></div>
+      <div class="stat"><div class="val">${activeCount}</div><div class="lbl">Pågående</div></div>
+      <div class="stat"><div class="val">${completedCount}</div><div class="lbl">Utförda</div></div>
     </div>
+    ${(waitlistCount || 0) > 0 ? `<div class="btn-row" style="margin-bottom:12px"><a class="btn secondary" href="#/waitlist">📋 Visa väntelista</a></div>` : ''}
     <div class="card">
       <h3>Alla körningar</h3>
       ${bookings.length === 0 ? `<div class="empty">Inga körningar</div>` : renderBookingTable(bookings, 'admin')}
@@ -2230,6 +2253,35 @@ async function adminDashboard(u) {
   `);
   bindRowClicks();
 }
+
+// Admin: visa väntelistan
+route(/^\/waitlist$/, async (_m, u) => {
+  if (!u || u.role !== 'admin') return navigate('/');
+  const { data, error } = await sb.from('waitlist').select('*').order('created_at', { ascending: false });
+  if (error) { toast('Kunde inte ladda väntelista: ' + error.message, 'err'); return; }
+  const rows = data || [];
+  mount(`
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <a href="#/" class="btn secondary">← Tillbaka</a>
+      <h2 style="margin:0">📋 Väntelista (${rows.length})</h2>
+    </div>
+    <div class="muted" style="margin-bottom:12px">Personer som anmält sig till lansering 1 juni 2026.</div>
+    <div class="card">
+      ${rows.length === 0 ? `<div class="empty">Inga anmälningar ännu.</div>` : `<table class="compact">
+        <thead><tr><th>Datum</th><th>E-post</th><th>Namn</th><th>Företag</th><th>Telefon</th><th>Roll</th><th>Flotta</th></tr></thead>
+        <tbody>${rows.map(r => `<tr>
+          <td class="nowrap">${fmtDate(r.created_at)}</td>
+          <td><b>${esc(r.email)}</b></td>
+          <td>${esc(r.name || '—')}</td>
+          <td>${esc(r.company || '—')}</td>
+          <td>${esc(r.phone || '—')}</td>
+          <td>${esc(r.role || '—')}</td>
+          <td>${esc(r.fleet_size || '—')}</td>
+        </tr>`).join('')}</tbody>
+      </table>`}
+    </div>
+  `);
+});
 
 // Admin: användarlista
 route(/^\/users$/, async (_m, u) => {
@@ -2566,9 +2618,9 @@ route(/^\/admin\/pricing$/, async (_m, u) => {
           <thead><tr><th>Min antal bilar</th><th>Max antal bilar</th><th>Pris/månad (kr exkl moms)</th><th>Inkl moms</th><th></th></tr></thead>
           <tbody>
             ${PRICING_TIERS.map((t, i) => `<tr data-i="${i}">
-              <td><input type="number" min="1" step="1" name="min" value="${esc(t.min)}" style="width:90px"></td>
-              <td><input type="number" min="1" step="1" name="max" value="${esc(t.max)}" style="width:90px"></td>
-              <td><input type="number" min="0" step="1" name="price" value="${esc(t.price)}" style="width:120px"> kr</td>
+              <td><input type="number" min="1" step="1" name="min" value="${esc(t.min)}" class="pricing-min"></td>
+              <td><input type="number" min="1" step="1" name="max" value="${esc(t.max)}" class="pricing-max"></td>
+              <td><input type="number" min="0" step="1" name="price" value="${esc(t.price)}" class="pricing-price"> kr</td>
               <td class="muted">${fmtMoney(t.price * (1 + VAT_RATE))}</td>
               <td><button class="danger icon-btn" data-deltier="${i}" title="Ta bort">🗑</button></td>
             </tr>`).join('')}
@@ -3041,7 +3093,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         actions = `
           <div class="banner info"><b>Motbud från uppdragsgivaren:</b> ${fmtMoney(last)}</div>
           <button id="acceptCounterBtn" class="ok" data-bid="${myBid.id}">✓ Acceptera ${fmtMoney(last)}</button>
-          <div class="field" style="max-width:260px;margin-top:8px"><label>Eller lägg ett nytt motbud (kr)</label>
+          <div class="field bid-field" style="margin-top:8px"><label>Eller lägg ett nytt motbud (kr)</label>
             <input type="number" id="newCounter" min="1" step="1"></div>
           <button id="counterBackBtn" class="secondary" data-bid="${myBid.id}">↩ Skicka motbud</button>
           <button id="withdrawBidBtn" class="danger" data-bid="${myBid.id}">Dra tillbaka bud</button>`;
@@ -3054,12 +3106,12 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       actions = `
         <div class="banner info">Uppdragsgivaren föreslår <b>${fmtMoney(b.price)}</b>. Du kan acceptera eller lägga ett motbud.</div>
         <button id="acceptBtn" class="ok">✓ Acceptera ${fmtMoney(b.price)}</button>
-        <div class="field" style="max-width:260px;margin-top:10px"><label>Eller lägg ett motbud (kr, exkl. moms)</label>
+        <div class="field bid-field" style="margin-top:10px"><label>Eller lägg ett motbud (kr, exkl. moms)</label>
           <input type="number" id="bidAmount" min="1" step="1" placeholder="t.ex. ${Math.round(b.price * 1.1)}"></div>
         <button id="placeBidBtn" class="secondary">💰 Lägg motbud</button>`;
     } else {
       actions = `
-        <div class="field" style="max-width:260px"><label>Lägg ett bud (kr, exkl. moms)</label>
+        <div class="field bid-field"><label>Lägg ett bud (kr, exkl. moms)</label>
           <input type="number" id="bidAmount" min="1" step="1" placeholder="t.ex. 8500" required></div>
         <button id="placeBidBtn" class="ok">💰 Lägg bud</button>`;
     }
@@ -3112,7 +3164,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
               <td class="muted" style="font-size:12px">${esc(history)}</td>
               <td>${canAct ? `
                 <button class="ok" data-acceptbid="${bd.id}">✓ Acceptera ${fmtMoney(last)}</button>
-                <input type="number" min="1" step="1" data-counter-input="${bd.id}" placeholder="Motbud" style="width:110px;margin-left:6px">
+                <input type="number" min="1" step="1" data-counter-input="${bd.id}" placeholder="Motbud" class="counter-inp">
                 <button class="secondary" data-counterbid="${bd.id}">↩ Motbud</button>
                 <button class="danger" data-rejectbid="${bd.id}">Avslå</button>` : ''}</td>
             </tr>`;
