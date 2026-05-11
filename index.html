@@ -94,10 +94,104 @@
   .stat{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px}
   .stat .val{font-size:22px;font-weight:600}
   .stat .lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-top:2px}
-  @media (max-width:700px){
+
+  /* ============== RESPONSIVE: tablet (≤900px) ============== */
+  @media (max-width:900px){
+    main{padding:0 14px;margin:16px auto}
     .row,.row-3,.row-4{grid-template-columns:1fr 1fr}
-    .stats{grid-template-columns:1fr 1fr}
+    .stats{grid-template-columns:repeat(2,1fr)}
+    header.topbar{padding:10px 14px;gap:10px;flex-wrap:wrap}
     header.topbar nav a span.label{display:none}
+    .kv{grid-template-columns:130px 1fr}
+  }
+
+  /* ============== RESPONSIVE: mobile (≤600px) ============== */
+  @media (max-width:600px){
+    body{font-size:14px}
+    main{padding:0 10px;margin:10px auto}
+    h2{font-size:18px;margin-bottom:12px}
+    h3{font-size:14px}
+    .card{padding:14px;margin-bottom:12px;border-radius:8px}
+
+    /* Stacka alla formulärrader */
+    .row,.row-3,.row-4{grid-template-columns:1fr;gap:8px}
+
+    /* Stats: 2 i bredd */
+    .stats{grid-template-columns:repeat(2,1fr);gap:8px}
+    .stat{padding:10px}
+    .stat .val{font-size:18px}
+    .stat .lbl{font-size:10px}
+
+    /* Topbar: tillåt scroll horisontellt vid många items */
+    header.topbar{padding:10px;gap:8px;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}
+    header.topbar h1{font-size:14px;white-space:nowrap;flex-shrink:0}
+    header.topbar nav{gap:4px;margin-left:auto;flex-shrink:0;overflow-x:auto}
+    header.topbar nav a{padding:6px 8px;font-size:13px;white-space:nowrap}
+    header.topbar nav a span.label{display:none}
+    header.topbar .who{font-size:11px;white-space:nowrap;margin-right:4px}
+    header.topbar a[href="#"]:has(.label),
+    header.topbar a#logout-link{font-size:12px}
+
+    /* Tabeller: gör scrollbara horisontellt */
+    .card>table,
+    .card>div>table,
+    .card table{display:block;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
+    .card>table thead,
+    .card table thead{display:table-header-group}
+    .card>table tbody,
+    .card table tbody{display:table-row-group}
+    .card>table tr,
+    .card table tr{display:table-row}
+    .card>table th,
+    .card>table td,
+    .card table th,
+    .card table td{display:table-cell;padding:8px 6px;font-size:12px;white-space:nowrap;max-width:none}
+    table.compact th,table.compact td{padding:6px 4px;font-size:11px}
+
+    /* Knappar: större touch-yta */
+    button,.btn{padding:10px 14px;font-size:14px;min-height:40px}
+    .btn-row{gap:6px}
+    .btn-row .btn,.btn-row button{flex:1 1 auto;min-width:0}
+    table .icon-btn,button.icon-btn,.btn.icon-btn{min-height:auto;padding:6px 10px;font-size:13px}
+
+    /* Auth-vy */
+    .auth-wrap{margin:20px 10px;max-width:none}
+    .auth-wrap .card{padding:18px}
+
+    /* Key-value lists */
+    .kv{grid-template-columns:1fr;gap:2px 0;margin:8px 0}
+    .kv dt{color:var(--muted);font-size:11px;margin-top:6px;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+    .kv dd{margin:0 0 4px;font-size:14px}
+
+    /* Chatt */
+    .chat{height:280px;padding:10px}
+    .msg{max-width:88%;font-size:13px}
+
+    /* Banner */
+    .banner{padding:8px 12px;font-size:12px}
+
+    /* Toast */
+    .toast{left:10px;right:10px;bottom:10px;padding:10px 14px;font-size:13px}
+
+    /* Inputs */
+    input,select,textarea{padding:10px 12px;font-size:16px} /* 16px hindrar zoom på iOS */
+    textarea{min-height:60px}
+
+    /* Badges mindre */
+    .badge{font-size:10px;padding:1px 6px}
+
+    /* Empty state mindre padding */
+    .empty{padding:24px 16px}
+
+    /* Booking-rader: bredare touch-yta */
+    tr[data-id]>td:first-child{padding-left:8px}
+  }
+
+  /* ============== RESPONSIVE: small mobile (≤380px) ============== */
+  @media (max-width:380px){
+    .stats{grid-template-columns:1fr}
+    header.topbar h1{font-size:13px}
+    h2{font-size:16px}
   }
 </style>
 </head>
