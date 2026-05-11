@@ -971,11 +971,7 @@ route(/^\/login$/, async () => {
           <div class="field"><label>Lösenord</label><input name="pwd" type="password" required autocomplete="current-password"></div>
           <button type="submit" style="width:100%">Logga in</button>
         </form>
-        <div class="switch">Inget konto? <a onclick="location.hash='#/register'">Registrera dig</a></div>
-        <div class="banner info" style="margin-top:16px;font-size:12px">
-          <b>Demo-konton</b> (lösen: <code>demo</code>):<br>
-          admin@demo.se · akare1@demo.se · akare2@demo.se
-        </div>
+        <div class="switch"><a onclick="location.hash='#/'">← Tillbaka till startsidan</a></div>
       </div>
     </div>`;
   document.getElementById('loginForm').onsubmit = async e => {
