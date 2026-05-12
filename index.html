@@ -2461,10 +2461,6 @@ function userForm(target) {
           <div class="field"><label>Org.nr</label><input name="orgNr" value="${esc(t.orgNr || '')}"></div>
         </div>
         <div class="field"><label>Adress</label><input name="address" value="${esc(t.address || '')}"></div>
-        <div class="row">
-          <div class="field"><label>Bankgiro</label><input name="bankgiro" value="${esc(t.bankgiro || '')}"></div>
-          <div class="field"><label>Plusgiro</label><input name="plusgiro" value="${esc(t.plusgiro || '')}"></div>
-        </div>
 
         <h3>💳 Prenumeration</h3>
         <div class="check" style="margin:8px 0">
@@ -2511,8 +2507,6 @@ function bindUserForm(target) {
       data.orgNr = (f.get('orgNr') || '').trim();
       data.address = (f.get('address') || '').trim();
       data.contactPerson = (f.get('contactPerson') || '').trim();
-      data.bankgiro = (f.get('bankgiro') || '').trim();
-      data.plusgiro = (f.get('plusgiro') || '').trim();
       data.subscriptionActive = !!f.get('subscriptionActive');
 
       const customPrice = f.get('customMonthlyPrice');
