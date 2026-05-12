@@ -2489,17 +2489,8 @@ function bindUserForm(target) {
       const email = (f.get('email') || '').toLowerCase().trim();
       if (!email) { toast('E-post krävs', 'err'); return; }
 
-      // Om ny eller email ändrad — kolla duplicat
-      if (isNew || email !== target.email) {
-        const existing = await db.oneByIndex('users', 'email', email);
-        if (existing && (!target || existing.id !== target.id)) {
-          toast('E-postadressen är redan registrerad', 'err');
-          return;
-        }
-      }
-
+      // Bygg profilen-data (email lagras i auth.users, INTE i profiles-tabellen)
       const data = target ? { ...target } : { createdAt: Date.now() };
-      data.email = email;
       data.name = (f.get('name') || '').trim();
       data.role = f.get('role');
       data.phone = (f.get('phone') || '').trim();
@@ -2518,21 +2509,69 @@ function bindUserForm(target) {
         data.createdAt = new Date(trialEndDate).getTime() - TRIAL_DAYS * 86400000;
       }
 
-      // Lösenord
       const pwd = f.get('pwd');
-      if (pwd) {
-        data.passwordHash = await hashPwd(pwd);
-      } else if (isNew) {
-        toast('Lösenord krävs för ny användare', 'err');
-        return;
-      }
 
       if (isNew) {
-        await db.add('users', data);
+        if (!pwd) { toast('Lösenord krävs för ny användare', 'err'); return; }
+
+        // Spara admin-sessionen innan signUp (annars byts vår session ut)
+        const { data: { session: adminSession } } = await sb.auth.getSession();
+
+        const { data: signupResult, error: signupError } = await sb.auth.signUp({
+          email,
+          password: pwd,
+          options: { data: { name: data.name, role: data.role } }
+        });
+        if (signupError) {
+          if (/already|registered|exists/i.test(signupError.message)) {
+            toast('E-postadressen är redan registrerad', 'err');
+          } else {
+            toast('Fel: ' + signupError.message, 'err');
+          }
+          // Återställ admin-session om den bytts ut trots felet
+          if (adminSession) {
+            await sb.auth.setSession({ access_token: adminSession.access_token, refresh_token: adminSession.refresh_token });
+            await refreshSession();
+          }
+          return;
+        }
+        // Vänta så triggern hinner skapa profil-raden
+        await new Promise(r => setTimeout(r, 800));
+
+        if (signupResult.user) {
+          // Uppdatera profil-raden med all extra data (utan email — den ligger i auth)
+          const profileUpdate = {
+            role: data.role,
+            name: data.name,
+            phone: data.phone,
+            company: data.company,
+            org_nr: data.orgNr,
+            address: data.address,
+            contact_person: data.contactPerson,
+            subscription_active: data.subscriptionActive,
+            custom_monthly_price: data.customMonthlyPrice,
+            created_at: new Date(data.createdAt).toISOString(),
+          };
+          const { error: updateError } = await sb.from('profiles').update(profileUpdate).eq('id', signupResult.user.id);
+          if (updateError) console.error('Profil-update efter signUp', updateError);
+        }
+
+        // Återställ admin-sessionen (signUp byter ut den)
+        if (adminSession) {
+          await sb.auth.setSession({ access_token: adminSession.access_token, refresh_token: adminSession.refresh_token });
+          await refreshSession();
+        }
+
         toast(`Användare ${data.name} skapad`);
       } else {
+        // Edit: bara profil-uppdatering. Email kan inte ändras härifrån (kräver auth-flöde).
         await db.put('users', data);
-        toast('Ändringar sparade');
+        if (pwd) {
+          // Lösenordsbyte kräver admin-API som inte är tillgängligt klient-sida — skippas
+          toast('Användare uppdaterad. OBS: lösenordsbyte kräver Supabase admin-API och är inte tillgängligt här.', 'warn');
+        } else {
+          toast('Ändringar sparade');
+        }
       }
       navigate('/users');
     } catch (err) {
