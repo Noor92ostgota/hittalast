@@ -128,6 +128,9 @@
   .pricing-min,.pricing-max{width:90px;max-width:100%}
   .pricing-price{width:120px;max-width:100%}
 
+  /* ============== Spinner-animation (laddnings-feedback) ============== */
+  @keyframes spin { to { transform: rotate(360deg); } }
+
   /* ============== Bell-länk ============== */
   .bell-link{position:relative;margin:0 6px;display:inline-flex;align-items:center}
   .bell-link .label{display:none}
@@ -941,11 +944,19 @@ function navigate(path) {
 async function render() {
   const hash = location.hash.slice(1) || '/';
   const user = currentUser();
-  _unreadCache = user ? await unreadCount(user.id) : 0;
+
+  // Hämta unread-count i bakgrunden — blockerar INTE navigeringen.
+  // När svaret kommer uppdateras bara badge:n i DOM:en.
+  if (user) {
+    unreadCount(user.id).then(c => {
+      _unreadCache = c;
+      updateBellBadge(c);
+    }).catch(() => {});
+  } else {
+    _unreadCache = 0;
+  }
 
   // Publika rutter (utan inlogg)
-  // Tills vidare (innan lansering) är endast landningssidan och login publika.
-  // /register och publika bokningar omdirigeras till landningssidan.
   const publicHashes = ['/', '/login'];
   const isPublicBooking = false;
   if (!user && !publicHashes.includes(hash) && !isPublicBooking) {
@@ -953,6 +964,21 @@ async function render() {
   }
   if (user && (hash === '/login' || hash === '/register')) {
     return navigate('/');
+  }
+
+  // Omedelbar feedback att klicket tagits emot:
+  // - Om befintligt innehåll finns: dimma det (ingen flicker)
+  // - Om sidan är tom: visa spinner
+  const appEl = document.getElementById('app');
+  if (appEl) {
+    const existingMain = appEl.querySelector('main');
+    if (existingMain) {
+      existingMain.style.opacity = '0.45';
+      existingMain.style.transition = 'opacity 0.12s';
+      existingMain.style.pointerEvents = 'none';
+    } else if (hash !== '/' && hash !== '/login') {
+      appEl.innerHTML = '<main><div style="display:flex;align-items:center;justify-content:center;padding:60px 20px;color:#6b7280"><span style="display:inline-block;width:18px;height:18px;border:2px solid #e5e7eb;border-top-color:#f97316;border-radius:50%;animation:spin 0.7s linear infinite;margin-right:10px"></span>Laddar...</div></main>';
+    }
   }
 
   for (const r of routes) {
@@ -966,18 +992,35 @@ async function render() {
   document.getElementById('app').innerHTML = `<main><div class="card"><h2>Sidan hittades inte</h2><a href="#/">Gå till start</a></div></main>`;
 }
 
+// Uppdaterar bara badge:n utan att re-rendera hela sidan
+function updateBellBadge(count) {
+  const bell = document.querySelector('header.topbar a[href="#/notifications"]');
+  if (!bell) return;
+  let badge = bell.querySelector('.bell-badge');
+  if (count > 0) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'bell-badge';
+      bell.appendChild(badge);
+    }
+    badge.textContent = count;
+  } else if (badge) {
+    badge.remove();
+  }
+}
+
 window.addEventListener('hashchange', render);
 
-// Periodisk koll för nya aviseringar
+// Periodisk koll för nya aviseringar — uppdaterar BARA badge:n, inte hela sidan
 setInterval(async () => {
   const u = currentUser();
   if (!u) return;
   const count = await unreadCount(u.id);
   if (count !== _unreadCache) {
+    const delta = count - _unreadCache;
     _unreadCache = count;
-    const oldCount = Number((document.querySelector('header.topbar nav a[href="#/notifications"] span') || {}).textContent) || 0;
-    if (count > oldCount) toast(`Du har ${count - oldCount} ny${count - oldCount === 1 ? '' : 'a'} avisering${count - oldCount === 1 ? '' : 'ar'}`);
-    render();
+    if (delta > 0) toast(`Du har ${delta} ny${delta === 1 ? '' : 'a'} avisering${delta === 1 ? '' : 'ar'}`);
+    updateBellBadge(count);
   }
 }, 15000);
 
@@ -2322,10 +2365,13 @@ route(/^\/waitlist$/, async (_m, u) => {
 // Admin: användarlista
 route(/^\/users$/, async (_m, u) => {
   if (u.role !== 'admin') return navigate('/');
-  const users = await db.all('users');
+  // Parallellt: alla tre tabeller hämtas samtidigt istället för sekventiellt (3x snabbare)
+  const [users, allBookings, allVehicles] = await Promise.all([
+    db.all('users'),
+    db.all('bookings'),
+    db.all('vehicles'),
+  ]);
   users.sort((a, b) => a.role.localeCompare(b.role) || a.name.localeCompare(b.name));
-  const allBookings = await db.all('bookings');
-  const allVehicles = await db.all('vehicles');
   const completedByUser = (uid) => {
     const set = new Set();
     for (const b of allBookings) {
