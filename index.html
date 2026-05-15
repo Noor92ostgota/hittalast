@@ -833,8 +833,8 @@ function tierFor(vehicleCount) {
   return t || PRICING_TIERS[PRICING_TIERS.length - 1]; // 30+ → högsta tariffen
 }
 function monthlyCostFor(vehicleCount, user) {
-  if (user && user.customMonthlyPrice != null && user.customMonthlyPrice >= 0) {
-    return Number(user.customMonthlyPrice);
+  if (user && user.manualMonthlyFee != null && user.manualMonthlyFee >= 0) {
+    return Number(user.manualMonthlyFee);
   }
   const t = tierFor(vehicleCount);
   return t ? t.price : 0;
@@ -2515,7 +2515,7 @@ function userForm(target) {
         </div>
         <div class="row">
           <div class="field"><label>Provperiod slutar (datum)</label><input name="trialEndDate" type="date" value="${trialEndIso}"></div>
-          <div class="field"><label>Manuell månadsavgift (kr exkl moms, lämna tomt = auto baserat på antal bilar)</label><input name="customMonthlyPrice" type="number" min="0" step="1" value="${t.customMonthlyPrice != null ? esc(t.customMonthlyPrice) : ''}"></div>
+          <div class="field"><label>Manuell månadsavgift (kr exkl moms, lämna tomt = auto baserat på antal bilar)</label><input name="manualMonthlyFee" type="number" min="0" step="1" value="${t.manualMonthlyFee != null ? esc(t.manualMonthlyFee) : ''}"></div>
         </div>
 
         <div class="btn-row" style="margin-top:14px">
@@ -2546,8 +2546,8 @@ function bindUserForm(target) {
       data.contactPerson = (f.get('contactPerson') || '').trim();
       data.subscriptionActive = !!f.get('subscriptionActive');
 
-      const customPrice = f.get('customMonthlyPrice');
-      data.customMonthlyPrice = (customPrice && Number(customPrice) > 0) ? Number(customPrice) : null;
+      const customPrice = f.get('manualMonthlyFee');
+      data.manualMonthlyFee = (customPrice && Number(customPrice) > 0) ? Number(customPrice) : null;
 
       // Trial end: räkna tillbaka till createdAt så befintliga helpers fungerar
       const trialEndDate = f.get('trialEndDate');
@@ -2595,7 +2595,7 @@ function bindUserForm(target) {
             address: data.address,
             contact_person: data.contactPerson,
             subscription_active: data.subscriptionActive,
-            custom_monthly_price: data.customMonthlyPrice,
+            manual_monthly_fee: data.manualMonthlyFee,
             created_at: new Date(data.createdAt).toISOString(),
           };
           const { error: updateError } = await sb.from('profiles').update(profileUpdate).eq('id', signupResult.user.id);
