@@ -846,7 +846,9 @@ function tierLabelFor(vehicleCount) {
 }
 function trialEndsAt(user) {
   if (!user || !user.createdAt) return 0;
-  return user.createdAt + TRIAL_DAYS * 86400000;
+  const ms = typeof user.createdAt === 'number' ? user.createdAt : new Date(user.createdAt).getTime();
+  if (isNaN(ms)) return 0;
+  return ms + TRIAL_DAYS * 86400000;
 }
 function trialDaysLeft(user) {
   const end = trialEndsAt(user);
@@ -1562,7 +1564,7 @@ const SORT_OPTIONS = {
   'date-asc':  { label: 'Lastdatum ↑',    fn: (a,b) => (a.loadDate||'9999').localeCompare(b.loadDate||'9999') },
   'date-desc': { label: 'Lastdatum ↓',    fn: (a,b) => (b.loadDate||'0').localeCompare(a.loadDate||'0') },
   'price-desc':{ label: 'Pris (högst)',   fn: (a,b) => (b.price||0) - (a.price||0) },
-  'recent':    { label: 'Senast skapad',  fn: (a,b) => b.createdAt - a.createdAt },
+  'recent':    { label: 'Senast skapad',  fn: (a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() },
 };
 function getSortKey() { return localStorage.getItem('sortKey') || 'from-asc'; }
 function setSortKey(k) { localStorage.setItem('sortKey', k); }
@@ -1801,7 +1803,7 @@ route(/^\/new$/, async (_m, u) => {
 // --------- Åkare: Dashboard (egna uppdrag) ---------
 async function haulerDashboard(u) {
   const mine = await db.byIndex('bookings', 'haulerId', u.id);
-  mine.sort((a, b) => b.createdAt - a.createdAt);
+  mine.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const byStatus = { accepted: [], completed: [] };
   mine.forEach(b => { if (byStatus[b.status]) byStatus[b.status].push(b); });
   const totalEarned = byStatus.completed.reduce((s, b) => s + (b.price - b.commission), 0);
@@ -2475,8 +2477,12 @@ route(/^\/users\/([\w-]+)\/edit$/, async (m, u) => {
 function userForm(target) {
   const t = target || {};
   const isNew = !target;
-  const trialEndIso = t.createdAt
-    ? new Date(t.createdAt + TRIAL_DAYS * 86400000).toISOString().slice(0,10)
+  // createdAt kan vara number (gamla data) eller ISO-string (från Supabase) — normalisera till ms
+  const createdAtMs = t.createdAt
+    ? (typeof t.createdAt === 'number' ? t.createdAt : new Date(t.createdAt).getTime())
+    : null;
+  const trialEndIso = (createdAtMs && !isNaN(createdAtMs))
+    ? new Date(createdAtMs + TRIAL_DAYS * 86400000).toISOString().slice(0,10)
     : '';
   return `
     <div class="card">
@@ -3105,7 +3111,7 @@ route(/^\/subscription$/, async (_m, u) => {
 route(/^\/notifications$/, async (_m, u) => {
   if (!u) return navigate('/login');
   const all = await db.byIndex('notifications', 'userId', u.id);
-  all.sort((a, b) => b.createdAt - a.createdAt);
+  all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   // markera alla som lästa när vyn öppnas
   for (const n of all) { if (!n.read) { n.read = 1; await db.put('notifications', n); } }
   _unreadCache = 0;
@@ -3682,7 +3688,7 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
   const { isBuyer, isAdmin } = ctx;
   const body = document.getElementById('thread-body') || document.getElementById('chat-area');
   const msgs = (await db.byIndex('messages', 'bookingId', b.id)).filter(m => m.haulerId === threadHauler.id);
-  msgs.sort((a, b) => a.createdAt - b.createdAt);
+  msgs.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
   const users = {};
   users[buyer.id] = buyer;
