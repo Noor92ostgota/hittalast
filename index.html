@@ -452,10 +452,26 @@ function setCurrentUser(u) { _sessionUser = u; }
 
 async function refreshSession() {
   try {
-    const { data: { session } } = await sb.auth.getSession();
+    // Supabase JS v2 använder LockManager för auth-storage som kan HÄNGA
+    // när flera flikar är öppna samtidigt (en flik håller låset, andra väntar).
+    // Vi timeout:ar getSession() efter 2s så app:en inte hänger för evigt.
+    const sessionPromise = sb.auth.getSession();
+    const timeoutPromise = new Promise(resolve =>
+      setTimeout(() => resolve({ data: { session: null }, __timedOut: true }), 2000)
+    );
+    const result = await Promise.race([sessionPromise, timeoutPromise]);
+    if (result.__timedOut) {
+      console.warn('refreshSession: getSession() timeout (multi-tab lock) — fortsätter utan session');
+    }
+    const session = result?.data?.session;
     if (session && session.user) {
-      const profile = await db.get('users', session.user.id);
-      _sessionUser = profile ? { ...profile, email: session.user.email } : { id: session.user.id, email: session.user.email, role: 'akare', name: '' };
+      // db.get kan också hänga om RLS-läsningen blockas — timeout även här
+      const profilePromise = db.get('users', session.user.id);
+      const profileTimeout = new Promise(resolve => setTimeout(() => resolve(null), 2000));
+      const profile = await Promise.race([profilePromise, profileTimeout]);
+      _sessionUser = profile
+        ? { ...profile, email: session.user.email }
+        : { id: session.user.id, email: session.user.email, role: 'akare', name: '' };
     } else {
       _sessionUser = null;
     }
@@ -3808,19 +3824,32 @@ window.addEventListener('beforeinstallprompt', (e) => {
 });
 
 // --------- Start ---------
+// Robust init: render() körs ALLTID, även om refreshSession() hänger/failar.
+// Detta löser multi-tab-låsning som blockerar sb.auth.getSession().
 (async () => {
+  // Försök hämta session — men låt INTE detta blockera UI:t.
+  // Om det hänger >2s, render:a ändå (refreshSession har egen timeout).
+  refreshSession()
+    .then(() => render())
+    .catch(e => { console.error('Init refreshSession-fel:', e); render(); });
+
+  // Lyssna på auth-ändringar (login/logout i annan flik etc.)
   try {
-    await refreshSession();
-    // Lyssna på auth-ändringar (login/logout i annan flik etc.)
-    sb.auth.onAuthStateChange(async (event, session) => {
-      await refreshSession();
-      render();
+    sb.auth.onAuthStateChange((event, session) => {
+      refreshSession().finally(() => render());
     });
-    render();
   } catch (e) {
-    console.error('Init-fel:', e);
-    document.getElementById('app').innerHTML = '<main><div class="card"><h2>Fel vid uppstart</h2><pre>' + (e.message || e) + '</pre></div></main>';
+    console.error('onAuthStateChange-fel:', e);
   }
+
+  // Säkerhetsnät: om render inte körts efter 3s pga någon obekant orsak, tvinga den.
+  setTimeout(() => {
+    const appEl = document.getElementById('app');
+    if (appEl && appEl.innerHTML.length === 0) {
+      console.warn('App-DIV tom efter 3s — tvingar render()');
+      try { render(); } catch (e) { console.error('Säkerhetsnät-render-fel:', e); }
+    }
+  }, 3000);
 })();
 </script>
 </body>
