@@ -2135,20 +2135,29 @@ route(/^\/available$/, async (_m, u) => {
       }
     });
 
-    // "Rensa ALLA tillgängliga"-knapp
+    // "Rensa ALLA tillgängliga"-knapp — rensar även importhistorik
+    // så att auto-import kan köras om från noll
     document.getElementById('clearAllOpenBtn')?.addEventListener('click', async () => {
       const total = document.querySelectorAll('tr[data-id]').length;
       if (total === 0) return;
-      if (!confirm(`⚠️ Radera ALLA ${total} tillgängliga körningar?\n\nDetta tömmer hela listan och tar bort alla relaterade bud/meddelanden/notifikationer.\nKan inte ångras.`)) return;
+      if (!confirm(`⚠️ Radera ALLA ${total} tillgängliga körningar?\n\nDetta:\n• Tar bort alla körningar + bud/meddelanden/notifikationer\n• Nollställer importhistoriken så auto-import kan köras om från noll\n• Speditörer (magic-links) behålls\n\nKan inte ångras.`)) return;
       if (!confirm(`Är du HELT säker? Detta är slutgiltigt.`)) return;
 
       const clearBtn = document.getElementById('clearAllOpenBtn');
       clearBtn.disabled = true;
       clearBtn.textContent = '⏳ Rensar...';
       try {
-        const { error } = await sb.from('bookings').delete().eq('status', 'open');
-        if (error) throw error;
-        toast(`✅ ${total} körningar rensade`);
+        // 1. Radera alla öppna bokningar (CASCADE tar hand om bids/msgs/notifs)
+        const { error: bErr } = await sb.from('bookings').delete().eq('status', 'open');
+        if (bErr) throw bErr;
+        // 2. Rensa importhistorik så samma mejl kan importeras om
+        const { error: eErr } = await sb.from('email_imports').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        if (eErr) console.warn('email_imports rensa-fel:', eErr);
+        // 3. Nollställ counters i speditor_invitations
+        const { error: iErr } = await sb.from('speditor_invitations').update({ bookings_imported_count: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
+        if (iErr) console.warn('invitations counter-fel:', iErr);
+
+        toast(`✅ ${total} körningar + importhistorik rensade`);
         navigate('/available');
       } catch (err) {
         console.error('Rensa-alla fel:', err);
@@ -2860,11 +2869,11 @@ route(/^\/import-email$/, async (_m, u) => {
       <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap">
         <div>
           <label style="display:block;font-size:12px;color:#a0a0a0;margin-bottom:4px">Antal mejl (max 200)</label>
-          <input id="autoImportMaxEmails" type="number" min="1" max="200" value="50" style="width:120px;padding:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:6px">
+          <input id="autoImportMaxEmails" type="number" min="1" max="200" value="200" style="width:120px;padding:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:6px">
         </div>
         <div>
           <label style="display:block;font-size:12px;color:#a0a0a0;margin-bottom:4px">Endast senaste X dagar (tomt = alla)</label>
-          <input id="autoImportDaysBack" type="number" min="1" max="365" placeholder="t.ex. 7" style="width:140px;padding:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:6px">
+          <input id="autoImportDaysBack" type="number" min="1" max="365" placeholder="tomt = alla" style="width:140px;padding:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:6px">
         </div>
       </div>
 
