@@ -4004,6 +4004,52 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
     : b.status === 'accepted' ? `<div class="banner ok">Körningen är <b>accepterad</b> av ${haulerLabel}.</div>`
     : `<div class="banner warn">Körningen är <b>utförd</b> ${b.completedAt ? '(' + fmtDate(b.completedAt) + ')' : ''}.</div>`;
 
+  // Admin-only: visa kontaktuppgifter för importerade bokningar
+  let adminImportBlock = '';
+  if (isAdmin && (b.senderInvitationId || b.importSourceId)) {
+    let invitation = null;
+    let emailImport = null;
+    try {
+      if (b.senderInvitationId) {
+        const { data } = await sb.from('speditor_invitations').select('*').eq('id', b.senderInvitationId).maybeSingle();
+        invitation = data;
+      }
+      if (b.importSourceId) {
+        const { data } = await sb.from('email_imports').select('id, subject, received_at, sender_email, sender_name, sender_company, parse_status, parsed_json').eq('id', b.importSourceId).maybeSingle();
+        emailImport = data;
+      }
+    } catch (err) { console.warn('Kunde inte hämta import-info:', err); }
+    if (invitation || emailImport) {
+      const senderEmail = invitation?.email || emailImport?.sender_email || '';
+      const senderName = invitation?.name || emailImport?.sender_name || '';
+      const senderCompany = invitation?.company || emailImport?.sender_company || '';
+      const regStatus = !invitation ? '—'
+        : invitation.registered_at ? '✅ Registrerad'
+        : invitation.opted_out ? '🚫 Opt-out (vill ej vara med)'
+        : '⏳ Ej registrerad (bara mejl-importerad)';
+      const fmtParser = (emailImport?.parsed_json && emailImport.parsed_json.format) || '—';
+      adminImportBlock = `
+        <div class="card" style="background:linear-gradient(135deg,#fff7ed,#ffedd5);border:1px solid #f97316;margin-bottom:14px;color:#1c1917">
+          <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap">
+            <h3 style="margin:0;color:#9a3412">📨 Admin: Importerad från mejl</h3>
+            <span style="background:#f97316;color:#fff;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700">ENDAST ADMIN</span>
+          </div>
+          <dl class="kv" style="margin-top:12px">
+            ${senderName ? `<dt>Avsändare</dt><dd><b>${esc(senderName)}</b></dd>` : ''}
+            ${senderEmail ? `<dt>E-post</dt><dd><a href="mailto:${esc(senderEmail)}" style="color:#9a3412;font-weight:600">${esc(senderEmail)}</a></dd>` : ''}
+            ${senderCompany ? `<dt>Företag</dt><dd>${esc(senderCompany)}</dd>` : ''}
+            ${invitation ? `<dt>Status</dt><dd>${regStatus}</dd>` : ''}
+            ${invitation ? `<dt>Importerade totalt</dt><dd>${invitation.bookings_imported_count || 0} bokningar från denna avsändare</dd>` : ''}
+            ${emailImport?.subject ? `<dt>Mejl-ämne</dt><dd><i>"${esc(emailImport.subject)}"</i></dd>` : ''}
+            ${emailImport?.received_at ? `<dt>Mottaget</dt><dd>${fmtDate(emailImport.received_at)}</dd>` : ''}
+            ${b.externalOrderId ? `<dt>Externt order-ID</dt><dd><code style="background:#fef3c7;padding:2px 6px;border-radius:3px">${esc(b.externalOrderId)}</code></dd>` : ''}
+            <dt>Parser</dt><dd><code style="background:#fef3c7;padding:2px 6px;border-radius:3px">${esc(fmtParser)}</code></dd>
+          </dl>
+          <div class="muted" style="margin-top:10px;font-size:12px">⚠️ Kontaktuppgifterna ovan visas <b>aldrig</b> publikt för åkare. Endast admin ser detta block.</div>
+        </div>`;
+    }
+  }
+
   mount(`
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
       <a href="#/" class="btn secondary">← Tillbaka</a>
@@ -4011,6 +4057,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       <span class="badge ${b.status}" style="font-size:13px">${STATUS_LABEL[b.status]}</span>
     </div>
     ${statusBanner}
+    ${adminImportBlock}
     <div class="row">
       <div class="card">
         <h3>Detaljer</h3>
