@@ -2003,10 +2003,14 @@ route(/^\/available$/, async (_m, u) => {
     <div class="card">
       ${open.length === 0 ? `<div class="empty">Inga öppna körningar just nu.</div>`
       : `<table>
-        <thead><tr><th>Från → Till</th><th>Lastning</th><th>Lossning</th><th>Krav</th><th>Pris</th>${canSeeCommission(u) ? '<th>Netto åkare</th>' : ''}${u.role === 'admin' ? '<th></th>' : ''}</tr></thead>
+        <thead><tr>
+          ${u.role === 'admin' ? `<th style="width:32px"><input type="checkbox" id="selectAllBookings" title="Markera alla"></th>` : ''}
+          <th>Från → Till</th><th>Lastning</th><th>Lossning</th><th>Krav</th><th>Pris</th>${canSeeCommission(u) ? '<th>Netto åkare</th>' : ''}${u.role === 'admin' ? '<th></th>' : ''}
+        </tr></thead>
         <tbody>
           ${open.map(b => `
-            <tr data-id="${b.id}" onclick="location.hash='#/booking/${b.id}'" style="cursor:pointer">
+            <tr data-id="${b.id}" data-route="${esc(b.fromLocation)} → ${esc(b.toLocation)}" onclick="location.hash='#/booking/${b.id}'" style="cursor:pointer">
+              ${u.role === 'admin' ? `<td onclick="event.stopPropagation()" style="text-align:center"><input type="checkbox" class="booking-select" data-id="${b.id}"></td>` : ''}
               <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
               <td>${esc(b.loadDate)} ${esc(b.loadTime || '')}</td>
               <td>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</td>
@@ -2021,25 +2025,32 @@ route(/^\/available$/, async (_m, u) => {
               ${u.role === 'admin' ? `<td class="nowrap" style="text-align:right"><button class="danger icon-btn" data-delbooking="${b.id}" data-route="${esc(b.fromLocation)} → ${esc(b.toLocation)}" title="Radera bokning" onclick="event.stopPropagation()">🗑</button></td>` : ''}
             </tr>`).join('')}
         </tbody>
-      </table>`}
+      </table>
+      ${u.role === 'admin' ? `
+        <div id="bulkActionBar" style="display:none;position:sticky;bottom:0;background:var(--card);border-top:2px solid var(--brand);padding:12px 16px;margin:0 -14px -14px;display:none;align-items:center;gap:14px;flex-wrap:wrap">
+          <strong id="bulkSelectedCount" style="color:var(--brand)">0 markerade</strong>
+          <button class="danger" id="bulkDeleteBtn">🗑 Radera valda</button>
+          <button class="secondary" id="bulkClearBtn">Avmarkera alla</button>
+          <span class="muted" style="font-size:12px;margin-left:auto">⚠️ Tar även bort relaterade bud, meddelanden och notifikationer</span>
+        </div>
+      ` : ''}
+      `}
     </div>
   `);
   bindRowClicks();
   const ss = document.getElementById('sortSelectAvail');
   if (ss) ss.onchange = () => { setSortKey(ss.value); navigate('/available'); };
 
-  // Admin: radera bokning
+  // Admin: enskild radering via 🗑-knapp
   document.querySelectorAll('button[data-delbooking]').forEach(btn => {
     btn.onclick = async (e) => {
       e.stopPropagation();
       const id = btn.dataset.delbooking;
       const route = btn.dataset.route;
-      // Förhandskoll: finns det bud på bokningen?
       const bids = await db.byIndex('bids', 'bookingId', id).catch(() => []);
       const bidsText = bids.length > 0 ? `\n\n⚠️ OBS: ${bids.length} bud finns på denna bokning. De raderas också.` : '';
       if (!confirm(`Radera bokningen "${route}"?${bidsText}\n\nDetta kan inte ångras.`)) return;
       try {
-        // Radera relaterade bud + meddelanden + notifikationer först
         for (const bid of bids) { await db.del('bids', bid.id); }
         const msgs = await db.byIndex('messages', 'bookingId', id).catch(() => []);
         for (const m of msgs) { await db.del('messages', m.id); }
@@ -2054,6 +2065,98 @@ route(/^\/available$/, async (_m, u) => {
       }
     };
   });
+
+  // Admin: bulk-selection
+  if (u.role === 'admin') {
+    const selectAll = document.getElementById('selectAllBookings');
+    const checkboxes = document.querySelectorAll('.booking-select');
+    const bar = document.getElementById('bulkActionBar');
+    const counter = document.getElementById('bulkSelectedCount');
+    const deleteBtn = document.getElementById('bulkDeleteBtn');
+    const clearBtn = document.getElementById('bulkClearBtn');
+
+    function getSelectedIds() {
+      return Array.from(document.querySelectorAll('.booking-select:checked')).map(cb => cb.dataset.id);
+    }
+    function updateBar() {
+      const ids = getSelectedIds();
+      counter.textContent = `${ids.length} ${ids.length === 1 ? 'markerad' : 'markerade'}`;
+      bar.style.display = ids.length > 0 ? 'flex' : 'none';
+      if (selectAll) {
+        selectAll.checked = ids.length === checkboxes.length && checkboxes.length > 0;
+        selectAll.indeterminate = ids.length > 0 && ids.length < checkboxes.length;
+      }
+    }
+
+    checkboxes.forEach(cb => cb.addEventListener('change', updateBar));
+    if (selectAll) {
+      selectAll.addEventListener('click', e => e.stopPropagation());
+      selectAll.addEventListener('change', () => {
+        checkboxes.forEach(cb => cb.checked = selectAll.checked);
+        updateBar();
+      });
+    }
+    clearBtn?.addEventListener('click', () => {
+      checkboxes.forEach(cb => cb.checked = false);
+      updateBar();
+    });
+
+    deleteBtn?.addEventListener('click', async () => {
+      const ids = getSelectedIds();
+      if (ids.length === 0) return;
+
+      // Räkna totalt antal relaterade rader för warning
+      let totalBids = 0, totalMsgs = 0, totalNotifs = 0;
+      const routes = [];
+      for (const id of ids) {
+        const tr = document.querySelector(`tr[data-id="${id}"]`);
+        if (tr) routes.push(tr.dataset.route);
+        const bids = await db.byIndex('bids', 'bookingId', id).catch(() => []);
+        const msgs = await db.byIndex('messages', 'bookingId', id).catch(() => []);
+        const notifs = await db.byIndex('notifications', 'bookingId', id).catch(() => []);
+        totalBids += bids.length;
+        totalMsgs += msgs.length;
+        totalNotifs += notifs.length;
+      }
+
+      const warnings = [];
+      if (totalBids) warnings.push(`${totalBids} bud`);
+      if (totalMsgs) warnings.push(`${totalMsgs} meddelanden`);
+      if (totalNotifs) warnings.push(`${totalNotifs} notifikationer`);
+      const warnText = warnings.length ? `\n\n⚠️ Detta raderar även ${warnings.join(', ')}.` : '';
+      const previewRoutes = routes.slice(0, 5).map(r => `• ${r}`).join('\n');
+      const moreText = routes.length > 5 ? `\n• ... och ${routes.length - 5} till` : '';
+
+      if (!confirm(`Radera ${ids.length} ${ids.length === 1 ? 'bokning' : 'bokningar'}?\n\n${previewRoutes}${moreText}${warnText}\n\nDetta kan inte ångras.`)) return;
+
+      deleteBtn.disabled = true;
+      deleteBtn.textContent = '⏳ Raderar...';
+
+      let deleted = 0, failed = 0;
+      for (const id of ids) {
+        try {
+          const bids = await db.byIndex('bids', 'bookingId', id).catch(() => []);
+          for (const bid of bids) await db.del('bids', bid.id);
+          const msgs = await db.byIndex('messages', 'bookingId', id).catch(() => []);
+          for (const m of msgs) await db.del('messages', m.id);
+          const notifs = await db.byIndex('notifications', 'bookingId', id).catch(() => []);
+          for (const n of notifs) await db.del('notifications', n.id);
+          await db.del('bookings', id);
+          deleted++;
+        } catch (err) {
+          console.error('Bulk-delete fel för booking', id, err);
+          failed++;
+        }
+      }
+
+      if (failed === 0) {
+        toast(`✅ ${deleted} ${deleted === 1 ? 'bokning' : 'bokningar'} raderade`);
+      } else {
+        toast(`${deleted} raderade, ${failed} misslyckades — se konsolen`, 'warn');
+      }
+      navigate('/available');
+    });
+  }
 });
 
 // --------- Åkare: Bilar (CRUD) ---------
