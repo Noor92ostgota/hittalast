@@ -1992,12 +1992,13 @@ route(/^\/available$/, async (_m, u) => {
   const sortKey = getSortKey();
   const sortOpts = Object.entries(SORT_OPTIONS).map(([k,v]) => `<option value="${k}" ${k===sortKey?'selected':''}>${v.label}</option>`).join('');
   mount(`
-    <h2>Tillgängliga körningar</h2>
+    <h2>Tillgängliga körningar ${open.length > 0 ? `<span class="muted" style="font-size:14px;font-weight:400">(${open.length} st)</span>` : ''}</h2>
     <div class="btn-row">
       <label class="btn secondary" style="margin:0;display:inline-flex;align-items:center;gap:8px;cursor:pointer">
         ↕ Sortera:
         <select id="sortSelectAvail" style="border:none;background:transparent;color:inherit;font:inherit;cursor:pointer">${sortOpts}</select>
       </label>
+      ${u.role === 'admin' && open.length > 0 ? `<button class="danger" id="clearAllOpenBtn" style="margin-left:auto">🧹 Rensa alla tillgängliga</button>` : ''}
     </div>
     <div class="banner info">Kontaktuppgifter till uppdragsgivaren visas först när du accepterar uppdraget.</div>
     <div class="card">
@@ -2041,24 +2042,19 @@ route(/^\/available$/, async (_m, u) => {
   const ss = document.getElementById('sortSelectAvail');
   if (ss) ss.onchange = () => { setSortKey(ss.value); navigate('/available'); };
 
-  // Admin: enskild radering via 🗑-knapp
+  // Admin: enskild radering via 🗑-knapp (CASCADE i DB tar hand om bids/msgs/notifs)
   document.querySelectorAll('button[data-delbooking]').forEach(btn => {
     btn.onclick = async (e) => {
       e.stopPropagation();
       const id = btn.dataset.delbooking;
       const route = btn.dataset.route;
-      const bids = await db.byIndex('bids', 'bookingId', id).catch(() => []);
-      const bidsText = bids.length > 0 ? `\n\n⚠️ OBS: ${bids.length} bud finns på denna bokning. De raderas också.` : '';
-      if (!confirm(`Radera bokningen "${route}"?${bidsText}\n\nDetta kan inte ångras.`)) return;
+      if (!confirm(`Radera bokningen "${route}"?\n\nRelaterade bud, meddelanden och notifikationer tas också bort.\nKan inte ångras.`)) return;
       try {
-        for (const bid of bids) { await db.del('bids', bid.id); }
-        const msgs = await db.byIndex('messages', 'bookingId', id).catch(() => []);
-        for (const m of msgs) { await db.del('messages', m.id); }
-        const notifs = await db.byIndex('notifications', 'bookingId', id).catch(() => []);
-        for (const n of notifs) { await db.del('notifications', n.id); }
         await db.del('bookings', id);
         toast(`Bokning "${route}" raderad`);
-        navigate('/available');
+        // Rensa raden från DOM direkt (snabbare än reload)
+        const tr = document.querySelector(`tr[data-id="${id}"]`);
+        if (tr) tr.remove();
       } catch (err) {
         console.error('Radera bokning-fel:', err);
         toast('Kunde inte radera: ' + (err.message || err), 'err');
@@ -2105,56 +2101,61 @@ route(/^\/available$/, async (_m, u) => {
       const ids = getSelectedIds();
       if (ids.length === 0) return;
 
-      // Räkna totalt antal relaterade rader för warning
-      let totalBids = 0, totalMsgs = 0, totalNotifs = 0;
       const routes = [];
-      for (const id of ids) {
+      ids.forEach(id => {
         const tr = document.querySelector(`tr[data-id="${id}"]`);
         if (tr) routes.push(tr.dataset.route);
-        const bids = await db.byIndex('bids', 'bookingId', id).catch(() => []);
-        const msgs = await db.byIndex('messages', 'bookingId', id).catch(() => []);
-        const notifs = await db.byIndex('notifications', 'bookingId', id).catch(() => []);
-        totalBids += bids.length;
-        totalMsgs += msgs.length;
-        totalNotifs += notifs.length;
-      }
-
-      const warnings = [];
-      if (totalBids) warnings.push(`${totalBids} bud`);
-      if (totalMsgs) warnings.push(`${totalMsgs} meddelanden`);
-      if (totalNotifs) warnings.push(`${totalNotifs} notifikationer`);
-      const warnText = warnings.length ? `\n\n⚠️ Detta raderar även ${warnings.join(', ')}.` : '';
+      });
       const previewRoutes = routes.slice(0, 5).map(r => `• ${r}`).join('\n');
       const moreText = routes.length > 5 ? `\n• ... och ${routes.length - 5} till` : '';
 
-      if (!confirm(`Radera ${ids.length} ${ids.length === 1 ? 'bokning' : 'bokningar'}?\n\n${previewRoutes}${moreText}${warnText}\n\nDetta kan inte ångras.`)) return;
+      if (!confirm(`Radera ${ids.length} ${ids.length === 1 ? 'bokning' : 'bokningar'}?\n\n${previewRoutes}${moreText}\n\nRelaterade bud, meddelanden och notifikationer tas också bort.\nKan inte ångras.`)) return;
 
       deleteBtn.disabled = true;
       deleteBtn.textContent = '⏳ Raderar...';
 
-      let deleted = 0, failed = 0;
-      for (const id of ids) {
-        try {
-          const bids = await db.byIndex('bids', 'bookingId', id).catch(() => []);
-          for (const bid of bids) await db.del('bids', bid.id);
-          const msgs = await db.byIndex('messages', 'bookingId', id).catch(() => []);
-          for (const m of msgs) await db.del('messages', m.id);
-          const notifs = await db.byIndex('notifications', 'bookingId', id).catch(() => []);
-          for (const n of notifs) await db.del('notifications', n.id);
-          await db.del('bookings', id);
-          deleted++;
-        } catch (err) {
-          console.error('Bulk-delete fel för booking', id, err);
-          failed++;
-        }
+      try {
+        // BULK: ett SQL-anrop tar bort alla på en gång. CASCADE rensar bids/msgs/notifs.
+        const { error } = await sb.from('bookings').delete().in('id', ids);
+        if (error) throw error;
+        toast(`✅ ${ids.length} ${ids.length === 1 ? 'bokning' : 'bokningar'} raderade`);
+        // Ta bort raderna från DOM direkt
+        ids.forEach(id => {
+          const tr = document.querySelector(`tr[data-id="${id}"]`);
+          if (tr) tr.remove();
+        });
+        bar.style.display = 'none';
+        // Bygg om sidan om alla rader togs bort (visa "Inga öppna körningar")
+        if (document.querySelectorAll('.booking-select').length === 0) navigate('/available');
+      } catch (err) {
+        console.error('Bulk-delete fel:', err);
+        toast('Kunde inte radera: ' + (err.message || err), 'err');
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = '🗑 Radera valda';
       }
+    });
 
-      if (failed === 0) {
-        toast(`✅ ${deleted} ${deleted === 1 ? 'bokning' : 'bokningar'} raderade`);
-      } else {
-        toast(`${deleted} raderade, ${failed} misslyckades — se konsolen`, 'warn');
+    // "Rensa ALLA tillgängliga"-knapp
+    document.getElementById('clearAllOpenBtn')?.addEventListener('click', async () => {
+      const total = document.querySelectorAll('tr[data-id]').length;
+      if (total === 0) return;
+      if (!confirm(`⚠️ Radera ALLA ${total} tillgängliga körningar?\n\nDetta tömmer hela listan och tar bort alla relaterade bud/meddelanden/notifikationer.\nKan inte ångras.`)) return;
+      if (!confirm(`Är du HELT säker? Detta är slutgiltigt.`)) return;
+
+      const clearBtn = document.getElementById('clearAllOpenBtn');
+      clearBtn.disabled = true;
+      clearBtn.textContent = '⏳ Rensar...';
+      try {
+        const { error } = await sb.from('bookings').delete().eq('status', 'open');
+        if (error) throw error;
+        toast(`✅ ${total} körningar rensade`);
+        navigate('/available');
+      } catch (err) {
+        console.error('Rensa-alla fel:', err);
+        toast('Kunde inte rensa: ' + (err.message || err), 'err');
+        clearBtn.disabled = false;
+        clearBtn.textContent = '🧹 Rensa alla tillgängliga';
       }
-      navigate('/available');
     });
   }
 });
