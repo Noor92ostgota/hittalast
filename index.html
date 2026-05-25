@@ -2594,8 +2594,18 @@ route(/^\/import-email$/, async (_m, u) => {
   if (!u || u.role !== 'admin') return navigate('/');
 
   mount(`
+    <div class="card" style="background:linear-gradient(135deg,#0a0a0a,#1f1f1f);color:#fff;border:1px solid var(--brand);margin-bottom:18px">
+      <h2 style="margin-top:0;color:#f97316">⚡ Auto-importera från Outlook</h2>
+      <p style="font-size:14px;color:#d4d4d8;margin-bottom:14px">Tryck en knapp och importera alla mejl från Hitta last-mappen i info@ostgotatransport.se.</p>
+      <div class="btn-row">
+        <button id="autoImportBtn" style="background:#f97316;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-weight:700;cursor:pointer">🚀 Auto-importera från Outlook (Hitta last)</button>
+        <button id="bulkPasteBtn" class="secondary" style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.15);padding:12px 24px;border-radius:8px;cursor:pointer">📋 Klistra in flera mejl samtidigt</button>
+      </div>
+      <div id="autoImportInfo" style="display:none;margin-top:16px;padding:16px;background:rgba(255,255,255,0.04);border-radius:8px;border:1px solid rgba(255,255,255,0.08)"></div>
+    </div>
+
     <div class="card">
-      <h2 style="margin-top:0">✉️ Importera mejl manuellt</h2>
+      <h2 style="margin-top:0">✉️ Importera ett enskilt mejl</h2>
       <p class="muted" style="font-size:14px">Klistra in ett mejl från en speditör. Systemet identifierar uppdrag, anonymiserar avsändaren och skapar bokningar.</p>
 
       <form id="importForm">
@@ -2731,6 +2741,147 @@ route(/^\/import-email$/, async (_m, u) => {
 
   document.getElementById('dryRunBtn').onclick = () => callParseEmail(true);
   document.getElementById('importForm').onsubmit = e => { e.preventDefault(); callParseEmail(false); };
+
+  // Auto-importera-knapp → visar info om Microsoft Graph + alternativ
+  document.getElementById('autoImportBtn').onclick = () => {
+    const info = document.getElementById('autoImportInfo');
+    info.style.display = info.style.display === 'none' ? 'block' : 'none';
+    info.innerHTML = `
+      <h3 style="margin-top:0;color:#f97316;font-size:18px">📦 Hur full auto-import fungerar</h3>
+      <p style="color:#d4d4d8;margin:8px 0 14px;font-size:14px">För att en knapp ska kunna gå till info@ostgotatransport.se och importera alla mejl automatiskt behövs <strong>Microsoft Graph-integration</strong>. Detta kräver en engångs-setup:</p>
+
+      <div style="background:rgba(0,0,0,0.3);padding:14px;border-radius:8px;margin-bottom:14px">
+        <strong style="color:#facc15">⚙️ Setup (30 min, du gör en gång):</strong>
+        <ol style="margin:8px 0 0;padding-left:20px;color:#d4d4d8;font-size:13px;line-height:1.6">
+          <li>Gå till <a href="https://portal.azure.com" target="_blank" style="color:#7dd3fc">portal.azure.com</a> → Microsoft Entra ID → App registrations</li>
+          <li>Skapa ny app med scopes: <code style="background:#000;padding:2px 6px;border-radius:3px">Mail.Read.Shared</code> + <code style="background:#000;padding:2px 6px;border-radius:3px">offline_access</code></li>
+          <li>Aktivera Azure-provider i Supabase Auth (Dashboard → Authentication → Providers)</li>
+          <li>Lägg in Application ID + Secret från Azure → Supabase</li>
+        </ol>
+        <p style="margin:10px 0 0;font-size:13px;color:#a0a0a0">Be Claude om detaljerade instruktioner när du är redo. När setup är klar fungerar knappen 100% automatiskt.</p>
+      </div>
+
+      <div style="background:rgba(34,197,94,0.08);padding:14px;border-radius:8px;border-left:3px solid #22c55e;margin-bottom:14px">
+        <strong style="color:#86efac">✅ Funkar idag — utan setup:</strong>
+        <div style="color:#d4d4d8;font-size:14px;margin-top:6px">
+          <strong>1.</strong> Klicka <strong>"📋 Klistra in flera mejl samtidigt"</strong> ovan — du kan klistra in 10+ mejl på en gång<br>
+          <strong>2.</strong> Be Claude att köra importen åt dig — skriv "kör auto-import" i chatten så använder Claude sin Outlook-koppling för att hämta + importera
+        </div>
+      </div>
+
+      <p style="margin:0;font-size:12px;color:#a0a0a0">💡 Tips: Power Automate-flöde i Microsoft 365 kan triggas vid varje nytt mejl och anropa vår parse-email Edge Function. Då blir det helt automatiskt utan knapptryckning.</p>
+    `;
+  };
+
+  // Bulk-paste: klistra in flera mejl samtidigt
+  document.getElementById('bulkPasteBtn').onclick = () => {
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto';
+    modal.innerHTML = `
+      <div style="background:var(--card);max-width:800px;width:100%;border-radius:14px;padding:32px;color:var(--ink)">
+        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px">
+          <h2 style="margin:0">📋 Klistra in flera mejl samtidigt</h2>
+          <button id="closeBulk" style="background:none;border:none;font-size:28px;cursor:pointer;color:var(--muted);line-height:1">×</button>
+        </div>
+        <p class="muted" style="font-size:14px;margin-bottom:14px">Klistra in flera mejl separerade med en rad som innehåller bara <code>---</code>. Systemet splittrar och importerar varje mejl separat.</p>
+        <div class="callout info" style="margin-bottom:14px">
+          <strong>Format-tips:</strong> Lägg en rad med <code>FROM: avsändare@ex.se</code> överst i varje mejl. Systemet plockar avsändaren därifrån.
+        </div>
+        <textarea id="bulkBody" rows="20" placeholder="FROM: pontus.inerud@dsv.com&#10;NAME: Pontus Inerud&#10;COMPANY: DSV Road AB&#10;SUBJECT: Gods över fredag&#10;&#10;1. COLLECT FROM:...&#10;(mejl 1 innehåll)&#10;&#10;---&#10;&#10;FROM: martin.adam@dsv.com&#10;NAME: Martin Adam&#10;COMPANY: DSV Road AB&#10;SUBJECT: GODS LASTNING IDAG&#10;&#10;1. COLLECT FROM:...&#10;(mejl 2 innehåll)" style="width:100%;font-family:ui-monospace,monospace;font-size:12px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)"></textarea>
+        <div class="btn-row" style="margin-top:14px">
+          <button id="bulkSubmitBtn">📥 Importera alla mejl</button>
+          <button id="closeBulkBottom" class="secondary">Avbryt</button>
+        </div>
+        <div id="bulkResult" style="margin-top:14px"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    const close = () => modal.remove();
+    document.getElementById('closeBulk').onclick = close;
+    document.getElementById('closeBulkBottom').onclick = close;
+    modal.onclick = e => { if (e.target === modal) close(); };
+
+    document.getElementById('bulkSubmitBtn').onclick = async () => {
+      const text = document.getElementById('bulkBody').value.trim();
+      if (!text) { toast('Klistra in minst ett mejl', 'err'); return; }
+
+      // Splittra på "---" på egen rad
+      const emailTexts = text.split(/\n\s*---\s*\n/).map(t => t.trim()).filter(Boolean);
+      if (emailTexts.length === 0) { toast('Hittade inga mejl', 'err'); return; }
+
+      const result = document.getElementById('bulkResult');
+      result.innerHTML = `<div class="muted">⏳ Importerar ${emailTexts.length} mejl…</div>`;
+
+      const session = await sb.auth.getSession();
+      const accessToken = session?.data?.session?.access_token;
+
+      let totalInserted = 0, totalSkipped = 0, totalFailed = 0;
+      const details = [];
+
+      for (let i = 0; i < emailTexts.length; i++) {
+        const raw = emailTexts[i];
+        // Plocka FROM/NAME/COMPANY/SUBJECT från headers om de finns
+        const fromMatch = raw.match(/^FROM:\s*(.+)$/im);
+        const nameMatch = raw.match(/^NAME:\s*(.+)$/im);
+        const companyMatch = raw.match(/^COMPANY:\s*(.+)$/im);
+        const subjectMatch = raw.match(/^SUBJECT:\s*(.+)$/im);
+
+        if (!fromMatch) {
+          details.push({ index: i + 1, status: 'skipped', reason: 'Saknar FROM-header' });
+          totalFailed++;
+          continue;
+        }
+
+        // Rensa headers från body
+        const body = raw
+          .replace(/^FROM:.*$/im, '')
+          .replace(/^NAME:.*$/im, '')
+          .replace(/^COMPANY:.*$/im, '')
+          .replace(/^SUBJECT:.*$/im, '')
+          .trim();
+
+        try {
+          const resp = await fetch(`${SUPABASE_URL}/functions/v1/parse-email`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken || SUPABASE_ANON_KEY}` },
+            body: JSON.stringify({
+              sender_email: fromMatch[1].trim(),
+              sender_name: nameMatch?.[1]?.trim() || null,
+              sender_company: companyMatch?.[1]?.trim() || null,
+              subject: subjectMatch?.[1]?.trim() || null,
+              raw_body: body,
+              use_llm_fallback: true,
+            }),
+          });
+          const data = await resp.json();
+          if (data.success) {
+            totalInserted += data.total_inserted || 0;
+            totalSkipped += data.total_skipped || 0;
+            details.push({ index: i + 1, status: 'ok', from: fromMatch[1].trim(), inserted: data.total_inserted, skipped: data.total_skipped });
+          } else {
+            totalFailed++;
+            details.push({ index: i + 1, status: 'failed', from: fromMatch[1].trim(), reason: data.message || data.error });
+          }
+        } catch (err) {
+          totalFailed++;
+          details.push({ index: i + 1, status: 'error', from: fromMatch[1].trim(), reason: err.message });
+        }
+      }
+
+      result.innerHTML = `
+        <div class="callout" style="border-left:4px solid var(--ok);padding:14px;background:rgba(20,122,61,0.08)">
+          <strong>✅ Klart!</strong><br>
+          ${totalInserted} bokningar skapade · ${totalSkipped} duplicat hoppade över · ${totalFailed} mejl misslyckades
+        </div>
+        <div style="margin-top:12px;max-height:300px;overflow:auto;background:var(--bg-2);padding:12px;border-radius:8px;font-size:13px">
+          ${details.map(d => `<div style="padding:6px 0;border-bottom:1px dashed var(--line)">
+            <strong>Mejl ${d.index}</strong> (${esc(d.from || '?')}):
+            ${d.status === 'ok' ? `<span style="color:var(--ok)">✓ ${d.inserted} skapade, ${d.skipped} duplicat</span>` : `<span style="color:var(--danger)">✗ ${esc(d.reason || 'Misslyckades')}</span>`}
+          </div>`).join('')}
+        </div>
+      `;
+    };
+  };
 });
 
 // --------- Admin: Dashboard ---------
