@@ -2742,35 +2742,139 @@ route(/^\/import-email$/, async (_m, u) => {
   document.getElementById('dryRunBtn').onclick = () => callParseEmail(true);
   document.getElementById('importForm').onsubmit = e => { e.preventDefault(); callParseEmail(false); };
 
-  // Auto-importera-knapp → visar info om Microsoft Graph + alternativ
+  // Auto-importera-knapp → anropar import-outlook-folder Edge Function
+  async function runOutlookImport(dryRun) {
+    const info = document.getElementById('autoImportInfo');
+    info.style.display = 'block';
+    info.innerHTML = `<div style="color:#d4d4d8">⏳ ${dryRun ? 'Förhandsgranskar' : 'Importerar'} mejl från Outlook-mappen "Hitta last"… <span class="muted" style="font-size:12px">(kan ta 20-60s)</span></div>`;
+
+    // Hämta valfri "antal dagar tillbaka"
+    const daysBackInput = document.getElementById('autoImportDaysBack');
+    const daysBack = daysBackInput && daysBackInput.value ? parseInt(daysBackInput.value, 10) : null;
+    const maxEmailsInput = document.getElementById('autoImportMaxEmails');
+    const maxEmails = maxEmailsInput && maxEmailsInput.value ? parseInt(maxEmailsInput.value, 10) : 50;
+
+    try {
+      const session = await sb.auth.getSession();
+      const accessToken = session?.data?.session?.access_token;
+      if (!accessToken) {
+        info.innerHTML = `<div style="color:#fca5a5">❌ Du måste vara inloggad som admin.</div>`;
+        return;
+      }
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/import-outlook-folder`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          user_email: 'info@ostgotatransport.se',
+          folder_name: 'Hitta last',
+          max_emails: maxEmails,
+          days_back: daysBack,
+          dry_run: dryRun,
+        }),
+      });
+      const data = await resp.json();
+
+      if (!resp.ok || data.error) {
+        info.innerHTML = `
+          <div style="background:rgba(180,35,24,0.15);padding:14px;border-radius:8px;border-left:3px solid #ef4444">
+            <strong style="color:#fca5a5">❌ Fel:</strong> <span style="color:#fca5a5">${esc(data.error || 'Okänt fel')}</span>
+            ${data.details ? `<pre style="margin-top:8px;font-size:11px;white-space:pre-wrap;color:#e5e5e5;background:rgba(0,0,0,0.3);padding:8px;border-radius:4px">${esc(data.details)}</pre>` : ''}
+          </div>`;
+        return;
+      }
+
+      if (data.dry_run) {
+        info.innerHTML = `
+          <div style="background:rgba(56,189,248,0.1);padding:14px;border-radius:8px;border-left:3px solid #38bdf8;margin-bottom:12px">
+            <strong style="color:#7dd3fc">🔍 Förhandsgranskning</strong>
+            <div style="margin-top:8px;color:#d4d4d8;font-size:14px;line-height:1.8">
+              📬 Totalt i mappen: <strong>${data.total_mails}</strong> mejl<br>
+              ✅ Redan importerade: <strong>${data.already_imported}</strong><br>
+              📥 Skulle importeras: <strong>${data.to_import}</strong>
+            </div>
+          </div>
+          ${data.sample && data.sample.length ? `
+            <div style="background:rgba(255,255,255,0.04);padding:12px;border-radius:8px">
+              <strong style="color:#facc15;font-size:13px">Förhandsvisning (3 första):</strong>
+              <ul style="margin:6px 0 0;padding-left:20px;color:#d4d4d8;font-size:13px">
+                ${data.sample.map(s => `<li><strong>${esc(s.subject || '(inget ämne)')}</strong> — ${esc(s.from || '?')} <span class="muted">${esc((s.received || '').slice(0, 10))}</span></li>`).join('')}
+              </ul>
+            </div>` : ''}
+          <div style="margin-top:12px">
+            <button id="runRealImportBtn" style="background:#f97316;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-weight:700;cursor:pointer">📥 Kör skarpt nu (${data.to_import} mejl)</button>
+          </div>`;
+        const realBtn = document.getElementById('runRealImportBtn');
+        if (realBtn) realBtn.onclick = () => runOutlookImport(false);
+        return;
+      }
+
+      // Skarp körning — visa resultat
+      info.innerHTML = `
+        <div style="background:rgba(20,122,61,0.15);padding:14px;border-radius:8px;border-left:3px solid #22c55e">
+          <strong style="color:#86efac">✅ Klart!</strong>
+          <div style="margin-top:8px;color:#d4d4d8;font-size:14px;line-height:1.8">
+            📬 Totalt i mappen: <strong>${data.total_mails}</strong><br>
+            ⏭️ Redan importerade förut: <strong>${data.already_imported}</strong><br>
+            🔄 Bearbetade nu: <strong>${data.processed}</strong><br>
+            ✅ Lyckade mejl: <strong>${data.success_count}</strong><br>
+            ❌ Misslyckade: <strong>${data.fail_count}</strong><br>
+            🚛 Nya bokningar skapade: <strong style="color:#86efac;font-size:18px">${data.total_bookings_created}</strong>
+          </div>
+        </div>
+        ${data.results && data.results.length ? `
+          <details style="margin-top:12px;background:rgba(255,255,255,0.04);padding:12px;border-radius:8px">
+            <summary style="cursor:pointer;color:#facc15;font-weight:600">Detaljer per mejl (${data.results.length})</summary>
+            <ul style="margin:10px 0 0;padding-left:20px;color:#d4d4d8;font-size:13px;line-height:1.6">
+              ${data.results.map(r => `
+                <li>
+                  ${r.status === 'ok' ? '✅' : '❌'} <strong>${esc(r.subject || '(inget ämne)')}</strong>
+                  ${r.status === 'ok' ? `— ${r.inserted || 0} bokningar (${r.skipped || 0} hoppade)` : `— <span style="color:#fca5a5">${esc(r.error || '')}</span>`}
+                </li>`).join('')}
+            </ul>
+          </details>` : ''}
+        <div style="margin-top:14px"><a class="btn" href="#/available" style="background:#f97316;color:#fff">Se alla bokningar →</a></div>`;
+    } catch (e) {
+      console.error('Outlook import error:', e);
+      info.innerHTML = `<div style="background:rgba(180,35,24,0.15);padding:14px;border-radius:8px;border-left:3px solid #ef4444"><strong style="color:#fca5a5">Tekniskt fel:</strong> <span style="color:#fca5a5">${esc(e.message || e)}</span></div>`;
+    }
+  }
+
   document.getElementById('autoImportBtn').onclick = () => {
     const info = document.getElementById('autoImportInfo');
-    info.style.display = info.style.display === 'none' ? 'block' : 'none';
+    // Toggle: stäng om redan öppen
+    if (info.style.display === 'block' && info.dataset.mode === 'options') {
+      info.style.display = 'none';
+      info.dataset.mode = '';
+      return;
+    }
+    info.style.display = 'block';
+    info.dataset.mode = 'options';
     info.innerHTML = `
-      <h3 style="margin-top:0;color:#f97316;font-size:18px">📦 Hur full auto-import fungerar</h3>
-      <p style="color:#d4d4d8;margin:8px 0 14px;font-size:14px">För att en knapp ska kunna gå till info@ostgotatransport.se och importera alla mejl automatiskt behövs <strong>Microsoft Graph-integration</strong>. Detta kräver en engångs-setup:</p>
+      <h3 style="margin-top:0;color:#f97316;font-size:18px">📦 Auto-import från info@ostgotatransport.se → Hitta last-mappen</h3>
+      <p style="color:#d4d4d8;font-size:14px;margin:0 0 14px">Systemet loggar in på Outlook via Microsoft Graph och hämtar mejl. Mejl som redan importerats hoppas över.</p>
 
-      <div style="background:rgba(0,0,0,0.3);padding:14px;border-radius:8px;margin-bottom:14px">
-        <strong style="color:#facc15">⚙️ Setup (30 min, du gör en gång):</strong>
-        <ol style="margin:8px 0 0;padding-left:20px;color:#d4d4d8;font-size:13px;line-height:1.6">
-          <li>Gå till <a href="https://portal.azure.com" target="_blank" style="color:#7dd3fc">portal.azure.com</a> → Microsoft Entra ID → App registrations</li>
-          <li>Skapa ny app med scopes: <code style="background:#000;padding:2px 6px;border-radius:3px">Mail.Read.Shared</code> + <code style="background:#000;padding:2px 6px;border-radius:3px">offline_access</code></li>
-          <li>Aktivera Azure-provider i Supabase Auth (Dashboard → Authentication → Providers)</li>
-          <li>Lägg in Application ID + Secret från Azure → Supabase</li>
-        </ol>
-        <p style="margin:10px 0 0;font-size:13px;color:#a0a0a0">Be Claude om detaljerade instruktioner när du är redo. När setup är klar fungerar knappen 100% automatiskt.</p>
-      </div>
-
-      <div style="background:rgba(34,197,94,0.08);padding:14px;border-radius:8px;border-left:3px solid #22c55e;margin-bottom:14px">
-        <strong style="color:#86efac">✅ Funkar idag — utan setup:</strong>
-        <div style="color:#d4d4d8;font-size:14px;margin-top:6px">
-          <strong>1.</strong> Klicka <strong>"📋 Klistra in flera mejl samtidigt"</strong> ovan — du kan klistra in 10+ mejl på en gång<br>
-          <strong>2.</strong> Be Claude att köra importen åt dig — skriv "kör auto-import" i chatten så använder Claude sin Outlook-koppling för att hämta + importera
+      <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap">
+        <div>
+          <label style="display:block;font-size:12px;color:#a0a0a0;margin-bottom:4px">Antal mejl (max 200)</label>
+          <input id="autoImportMaxEmails" type="number" min="1" max="200" value="50" style="width:120px;padding:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:6px">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;color:#a0a0a0;margin-bottom:4px">Endast senaste X dagar (tomt = alla)</label>
+          <input id="autoImportDaysBack" type="number" min="1" max="365" placeholder="t.ex. 7" style="width:140px;padding:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:6px">
         </div>
       </div>
 
-      <p style="margin:0;font-size:12px;color:#a0a0a0">💡 Tips: Power Automate-flöde i Microsoft 365 kan triggas vid varje nytt mejl och anropa vår parse-email Edge Function. Då blir det helt automatiskt utan knapptryckning.</p>
+      <div class="btn-row">
+        <button id="autoImportDryBtn" class="secondary" style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.2);padding:10px 18px;border-radius:8px;cursor:pointer">🔍 Förhandsgranska först</button>
+        <button id="autoImportRunBtn" style="background:#f97316;color:#fff;border:none;padding:10px 18px;border-radius:8px;font-weight:700;cursor:pointer">📥 Importera direkt</button>
+      </div>
+      <div id="autoImportResult" style="margin-top:14px"></div>
     `;
+    document.getElementById('autoImportDryBtn').onclick = () => runOutlookImport(true);
+    document.getElementById('autoImportRunBtn').onclick = () => runOutlookImport(false);
   };
 
   // Bulk-paste: klistra in flera mejl samtidigt
