@@ -2003,7 +2003,7 @@ route(/^\/available$/, async (_m, u) => {
     <div class="card">
       ${open.length === 0 ? `<div class="empty">Inga öppna körningar just nu.</div>`
       : `<table>
-        <thead><tr><th>Från → Till</th><th>Lastning</th><th>Lossning</th><th>Krav</th><th>Pris</th>${canSeeCommission(u) ? '<th>Netto åkare</th>' : ''}</tr></thead>
+        <thead><tr><th>Från → Till</th><th>Lastning</th><th>Lossning</th><th>Krav</th><th>Pris</th>${canSeeCommission(u) ? '<th>Netto åkare</th>' : ''}${u.role === 'admin' ? '<th></th>' : ''}</tr></thead>
         <tbody>
           ${open.map(b => `
             <tr data-id="${b.id}" onclick="location.hash='#/booking/${b.id}'" style="cursor:pointer">
@@ -2018,6 +2018,7 @@ route(/^\/available$/, async (_m, u) => {
               </td>
               <td>${b.price == null ? '<span class="muted">Önskar prisförslag</span>' : fmtMoney(b.price)}</td>
               ${canSeeCommission(u) ? `<td>${b.price == null ? '<span class="muted">—</span>' : fmtMoney(nettoFor(b.price))}</td>` : ''}
+              ${u.role === 'admin' ? `<td class="nowrap" style="text-align:right"><button class="danger icon-btn" data-delbooking="${b.id}" data-route="${esc(b.fromLocation)} → ${esc(b.toLocation)}" title="Radera bokning" onclick="event.stopPropagation()">🗑</button></td>` : ''}
             </tr>`).join('')}
         </tbody>
       </table>`}
@@ -2026,6 +2027,33 @@ route(/^\/available$/, async (_m, u) => {
   bindRowClicks();
   const ss = document.getElementById('sortSelectAvail');
   if (ss) ss.onchange = () => { setSortKey(ss.value); navigate('/available'); };
+
+  // Admin: radera bokning
+  document.querySelectorAll('button[data-delbooking]').forEach(btn => {
+    btn.onclick = async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.delbooking;
+      const route = btn.dataset.route;
+      // Förhandskoll: finns det bud på bokningen?
+      const bids = await db.byIndex('bids', 'bookingId', id).catch(() => []);
+      const bidsText = bids.length > 0 ? `\n\n⚠️ OBS: ${bids.length} bud finns på denna bokning. De raderas också.` : '';
+      if (!confirm(`Radera bokningen "${route}"?${bidsText}\n\nDetta kan inte ångras.`)) return;
+      try {
+        // Radera relaterade bud + meddelanden + notifikationer först
+        for (const bid of bids) { await db.del('bids', bid.id); }
+        const msgs = await db.byIndex('messages', 'bookingId', id).catch(() => []);
+        for (const m of msgs) { await db.del('messages', m.id); }
+        const notifs = await db.byIndex('notifications', 'bookingId', id).catch(() => []);
+        for (const n of notifs) { await db.del('notifications', n.id); }
+        await db.del('bookings', id);
+        toast(`Bokning "${route}" raderad`);
+        navigate('/available');
+      } catch (err) {
+        console.error('Radera bokning-fel:', err);
+        toast('Kunde inte radera: ' + (err.message || err), 'err');
+      }
+    };
+  });
 });
 
 // --------- Åkare: Bilar (CRUD) ---------
@@ -3559,6 +3587,9 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
   }
   if (isBuyer && b.status === 'open') {
     actions += ` <button id="cancelBtn" class="danger">Ta bort körning</button>`;
+  } else if (isAdmin && !isBuyer && b.status !== 'completed') {
+    // Admin kan radera vilken bokning som helst (utom redan utförda)
+    actions += ` <button id="cancelBtn" class="danger">🗑 Ta bort (admin)</button>`;
   }
 
   let bidsBlock = '';
@@ -3924,12 +3955,27 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
   }
   if (document.getElementById('cancelBtn')) {
     document.getElementById('cancelBtn').onclick = async () => {
-      if (!confirm('Ta bort körningen permanent?')) return;
-      await db.del('bookings', b.id);
-      const msgs = await db.byIndex('messages', 'bookingId', b.id);
-      for (const m of msgs) await db.del('messages', m.id);
-      toast('Körning borttagen');
-      navigate('/');
+      // Förhandskoll: räkna bud + meddelanden + notifikationer som ska raderas
+      const relBids = await db.byIndex('bids', 'bookingId', b.id).catch(() => []);
+      const relMsgs = await db.byIndex('messages', 'bookingId', b.id).catch(() => []);
+      const relNotifs = await db.byIndex('notifications', 'bookingId', b.id).catch(() => []);
+      const warnings = [];
+      if (relBids.length) warnings.push(`${relBids.length} bud`);
+      if (relMsgs.length) warnings.push(`${relMsgs.length} meddelanden`);
+      if (relNotifs.length) warnings.push(`${relNotifs.length} notifikationer`);
+      const warnText = warnings.length ? `\n\n⚠️ Detta raderar även ${warnings.join(', ')}.` : '';
+      if (!confirm(`Ta bort körningen permanent?${warnText}\n\nDetta kan inte ångras.`)) return;
+      try {
+        for (const bid of relBids) await db.del('bids', bid.id);
+        for (const m of relMsgs) await db.del('messages', m.id);
+        for (const n of relNotifs) await db.del('notifications', n.id);
+        await db.del('bookings', b.id);
+        toast('Körning borttagen');
+        navigate('/');
+      } catch (err) {
+        console.error('Radera-fel:', err);
+        toast('Kunde inte radera: ' + (err.message || err), 'err');
+      }
     };
   }
 
