@@ -975,12 +975,12 @@ async function render() {
   }
 
   // Publika rutter (utan inlogg)
-  const publicHashes = ['/', '/login', '/register'];
-  const isPublicMagicLink = /^\/(r|opt-out)\/[a-f0-9]+$/.test(hash);
+  const publicHashes = ['/', '/login', '/register', '/signup'];
+  const isPublicMagicLink = /^\/(r|opt-out|launch)\/[a-f0-9]+$/.test(hash);
   if (!user && !publicHashes.includes(hash) && !isPublicMagicLink) {
     return navigate('/');
   }
-  if (user && (hash === '/login' || hash === '/register')) {
+  if (user && (hash === '/login' || hash === '/register' || hash === '/signup')) {
     return navigate('/');
   }
 
@@ -1333,6 +1333,102 @@ route(/^\/register$/, async () => {
   };
 });
 
+// --------- Snabbt signup-flöde (efter lansering) ---------
+// /signup = manuellt formulär
+// /launch/{token} = klick från lanseringsmejlet, förfyller från väntelistan
+function renderSignupForm(prefilled, fromToken) {
+  const p = prefilled || {};
+  const greeting = p.name
+    ? `<p class="muted" style="margin-top:-8px">Välkommen <b>${esc(p.name.split(' ')[0])}</b>! Vi har förifyllt dina uppgifter från väntelistan — kontrollera och välj ett lösenord.</p>`
+    : `<p class="muted" style="margin-top:-8px">Skapa ditt konto på 30 sekunder. 14 dagars gratis provperiod ingår.</p>`;
+
+  document.getElementById('app').innerHTML = `
+    <div class="auth-wrap">
+      <div class="card">
+        <div style="text-align:center;margin-bottom:16px"><img src="/logo.png" alt="hittalast.se" style="max-width:200px;width:80%;height:auto"></div>
+        <h2 style="margin-top:0">🚀 Skapa konto</h2>
+        ${greeting}
+        ${fromToken ? '<div class="banner ok" style="margin-bottom:14px">✅ Inbjudningslänk verifierad</div>' : ''}
+        <form id="signupForm">
+          <div class="field"><label>För- och efternamn *</label><input name="name" required value="${esc(p.name || '')}" autocomplete="name"></div>
+          <div class="field"><label>Företag *</label><input name="company" required value="${esc(p.company || '')}" autocomplete="organization"></div>
+          <div class="row">
+            <div class="field"><label>Org.nr</label><input name="orgNr" value="${esc(p.organization_number || '')}" inputmode="numeric" maxlength="13"></div>
+            <div class="field"><label>Telefon *</label><input name="phone" required value="${esc(p.phone || '')}" autocomplete="tel"></div>
+          </div>
+          <div class="field"><label>E-post *</label><input name="email" type="email" required value="${esc(p.email || '')}" autocomplete="email" ${fromToken ? 'readonly style="background:#f5f5f5;cursor:not-allowed"' : ''}></div>
+          <div class="field"><label>Välj lösenord *</label><input name="pwd" type="password" required minlength="6" autocomplete="new-password" placeholder="Minst 6 tecken"></div>
+          <button type="submit" style="width:100%;background:#f97316;color:#fff;font-weight:700;padding:14px;border:none;border-radius:8px;cursor:pointer;font-size:15px">Skapa konto + starta provperiod</button>
+        </form>
+        <div class="switch">Har redan konto? <a onclick="location.hash='#/login'">Logga in</a></div>
+      </div>
+    </div>`;
+
+  document.getElementById('signupForm').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const btn = e.target.querySelector('button[type=submit]');
+    btn.disabled = true;
+    btn.textContent = '⏳ Skapar konto...';
+    try {
+      const data = {
+        email: f.get('email'), pwd: f.get('pwd'), role: 'akare',
+        name: f.get('name'), phone: f.get('phone'), company: f.get('company'),
+        orgNr: f.get('orgNr') || '',
+      };
+      await register(data);
+      // Markera waitlist-raden som consumed om token finns
+      if (fromToken && _sessionUser?.id) {
+        await sb.from('waitlist').update({
+          consumed_at: new Date().toISOString(),
+          consumed_profile_id: _sessionUser.id,
+        }).eq('magic_token', fromToken);
+      }
+      toast('Välkommen till hittalast.se! 🎉');
+      navigate('/');
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Skapa konto + starta provperiod';
+      toast(err.message || 'Något gick fel — försök igen', 'err');
+    }
+  };
+}
+
+route(/^\/signup$/, async () => {
+  renderSignupForm(null, null);
+});
+
+route(/^\/launch\/([a-f0-9]+)$/, async (m) => {
+  const token = m[1];
+  document.getElementById('app').innerHTML = '<div class="auth-wrap"><div class="card"><div style="text-align:center;padding:40px;color:#6b7280">⏳ Verifierar inbjudningslänk...</div></div></div>';
+  try {
+    const { data: row, error } = await sb.from('waitlist').select('*').eq('magic_token', token).maybeSingle();
+    if (error || !row) {
+      document.getElementById('app').innerHTML = `
+        <div class="auth-wrap"><div class="card">
+          <h2>Länken är ogiltig</h2>
+          <p>Inbjudningslänken kan inte hittas eller har gått ut.</p>
+          <div style="margin-top:20px"><a class="btn" href="#/signup">Skapa konto manuellt</a> <a class="btn secondary" href="#/">Till startsidan</a></div>
+        </div></div>`;
+      return;
+    }
+    if (row.consumed_at) {
+      document.getElementById('app').innerHTML = `
+        <div class="auth-wrap"><div class="card">
+          <h2>Länken har redan använts</h2>
+          <p>Det verkar som du redan skapat ett konto med den här länken.</p>
+          <div style="margin-top:20px"><a class="btn" href="#/login">Logga in</a></div>
+        </div></div>`;
+      return;
+    }
+    renderSignupForm(row, token);
+  } catch (err) {
+    console.error('Launch link fel:', err);
+    toast('Kunde inte verifiera länken: ' + (err.message || err), 'err');
+    navigate('/');
+  }
+});
+
 // --------- Dashboard-entry (skickar till rätt roll-dashboard, eller publik vy) ---------
 route(/^\/$/, async (_m, u) => {
   if (!u) return publicDashboard();
@@ -1343,16 +1439,18 @@ route(/^\/$/, async (_m, u) => {
 });
 
 // --------- Publik vy (utan inlogg) ---------
-// ============== LANDNINGSSIDA — låst tills 1 juli 2026 ==============
-const LAUNCH_DATE = new Date('2026-07-01T00:00:00+02:00');
+// ============== LANDNINGSSIDA — låst tills 1 juli 2026 06:00 ==============
+const LAUNCH_DATE = new Date('2026-07-01T06:00:00+02:00');
+function isLaunched() { return Date.now() >= LAUNCH_DATE.getTime(); }
 
 async function publicDashboard() {
   const app = document.getElementById('app');
+  const launched = isLaunched();
   const renderCountdown = () => {
     const now = Date.now();
     const diff = LAUNCH_DATE.getTime() - now;
     if (diff <= 0) {
-      return '<div class="countdown-box" style="flex:1"><div class="countdown-val">🚀</div><div class="countdown-lbl">Lansering pågår</div></div>';
+      return '<div class="countdown-box" style="flex:1;background:rgba(34,197,94,.2);border-color:rgba(34,197,94,.4)"><div class="countdown-val" style="color:#86efac">🟢</div><div class="countdown-lbl" style="color:#86efac">Live nu</div></div>';
     }
     const d = Math.floor(diff / 86400000);
     const h = Math.floor((diff % 86400000) / 3600000);
@@ -1365,6 +1463,59 @@ async function publicDashboard() {
       <div class="countdown-box"><div class="countdown-val" data-cd="s">${String(s).padStart(2,'0')}</div><div class="countdown-lbl">Sekunder</div></div>`;
   };
 
+  // Olika UI före och efter lansering
+  const eyebrow = launched
+    ? '<span class="landing-eyebrow" style="background:rgba(34,197,94,.15);color:#86efac">🟢 Live nu — skapa ditt konto</span>'
+    : '<span class="landing-eyebrow">🟡 Lansering 1 juli 2026 — gå med i väntelistan</span>';
+
+  const ctaCard = launched ? `
+    <div class="landing-card">
+      <h2 style="margin-top:0">Kom igång nu</h2>
+      <p class="lead">14 dagars gratis provperiod. Inga krav. Ditt företag äger fortfarande relationerna.</p>
+      <a href="#/signup" class="btn-primary" style="display:block;text-align:center;text-decoration:none;margin-top:20px;padding:18px;font-size:17px;font-weight:700">🚀 Skapa konto</a>
+      <a href="#/login" class="btn-secondary-landing" style="display:block;text-align:center;text-decoration:none;margin-top:12px;padding:16px;font-size:15px;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:10px">Logga in</a>
+      <p class="fineprint" style="margin-top:20px">Har du redan ett konto eller fått en inbjudningslänk? Klicka logga in eller använd länken i mejlet.</p>
+    </div>
+  ` : `
+    <div class="landing-card">
+      <div id="signup-area">
+        <h2>Gå med i väntelistan</h2>
+        <p class="lead">Var bland de första att få inbjudan när vi öppnar 1 juli. Ingen förpliktelse, du kan avregistrera dig när som helst.</p>
+        <form id="waitlist-form">
+          <label>E-postadress *</label>
+          <input type="email" name="email" required autocomplete="email">
+
+          <label>För- och efternamn</label>
+          <input type="text" name="name" autocomplete="name">
+
+          <label>Företag</label>
+          <input type="text" name="company" autocomplete="organization">
+
+          <label>Org.nr</label>
+          <input type="text" name="organization_number" inputmode="numeric" maxlength="13" pattern="[0-9 \\-]*">
+
+          <label>Telefon</label>
+          <input type="tel" name="phone" autocomplete="tel">
+
+          <label>Roll</label>
+          <input type="text" name="role" placeholder="t.ex. VD, Trafikledare, Åkare…" autocomplete="organization-title" maxlength="80">
+
+          <label>Storlek på fordonsflotta</label>
+          <select name="fleet_size">
+            <option value="">Välj…</option>
+            <option value="0">Inga fordon ännu</option>
+            <option value="1-5">1–5 bilar</option>
+            <option value="6-15">6–15 bilar</option>
+            <option value="16-30">16–30 bilar</option>
+            <option value="30+">30+ bilar</option>
+          </select>
+
+          <button type="submit" class="btn-primary" id="signup-btn">Sätt mig på listan →</button>
+          <p class="fineprint">Vi sparar dina uppgifter enbart för att kunna kontakta dig om plattformen. Inget spam.</p>
+        </form>
+      </div>
+    </div>`;
+
   app.innerHTML = `
     <div class="landing">
       <div class="landing-inner">
@@ -1376,7 +1527,7 @@ async function publicDashboard() {
 
         <div class="landing-hero">
           <div>
-            <span class="landing-eyebrow">🟡 Lansering 1 juli 2026 — gå med i väntelistan</span>
+            ${eyebrow}
             <h1 class="landing-h1">Minska <span class="accent">tomkörningar</span>, öka lönsamheten och maximera kapaciteten i varje fordon.</h1>
             <p class="landing-sub">
               Sveriges nya marknadsplats för åkerier och speditörer. Matcha lediga lastbilar med körningar, förhandla pris direkt och få returlast på vägen hem — utan provision på enskilda transporter.
@@ -1387,47 +1538,10 @@ async function publicDashboard() {
               <li>Ditt företag äger relationerna — fakturera direkt till kunden</li>
               <li>Färre mejl — alla uppdrag samlade på ett ställe</li>
             </ul>
-            <div class="countdown" id="countdown">${renderCountdown()}</div>
+            ${launched ? '' : `<div class="countdown" id="countdown">${renderCountdown()}</div>`}
           </div>
 
-          <div class="landing-card">
-            <div id="signup-area">
-              <h2>Gå med i väntelistan</h2>
-              <p class="lead">Var bland de första att få inbjudan när vi öppnar 1 juli. Ingen förpliktelse, du kan avregistrera dig när som helst.</p>
-              <form id="waitlist-form">
-                <label>E-postadress *</label>
-                <input type="email" name="email" required autocomplete="email">
-
-                <label>För- och efternamn</label>
-                <input type="text" name="name" autocomplete="name">
-
-                <label>Företag</label>
-                <input type="text" name="company" autocomplete="organization">
-
-                <label>Org.nr</label>
-                <input type="text" name="organization_number" inputmode="numeric" maxlength="13" pattern="[0-9 \-]*">
-
-                <label>Telefon</label>
-                <input type="tel" name="phone" autocomplete="tel">
-
-                <label>Roll</label>
-                <input type="text" name="role" placeholder="t.ex. VD, Trafikledare, Åkare…" autocomplete="organization-title" maxlength="80">
-
-                <label>Storlek på fordonsflotta</label>
-                <select name="fleet_size">
-                  <option value="">Välj…</option>
-                  <option value="0">Inga fordon ännu</option>
-                  <option value="1-5">1–5 bilar</option>
-                  <option value="6-15">6–15 bilar</option>
-                  <option value="16-30">16–30 bilar</option>
-                  <option value="30+">30+ bilar</option>
-                </select>
-
-                <button type="submit" class="btn-primary" id="signup-btn">Sätt mig på listan →</button>
-                <p class="fineprint">Vi sparar dina uppgifter enbart för att kunna kontakta dig om plattformen. Inget spam.</p>
-              </form>
-            </div>
-          </div>
+          ${ctaCard}
         </div>
 
         <div class="landing-features">
@@ -1460,13 +1574,17 @@ async function publicDashboard() {
     </div>
   `;
 
-  // Countdown-timer uppdaterar var sekund
+  // Countdown-timer uppdaterar var sekund (bara om vi har en countdown)
   if (window._countdownTimer) clearInterval(window._countdownTimer);
-  window._countdownTimer = setInterval(() => {
-    const el = document.getElementById('countdown');
-    if (!el) { clearInterval(window._countdownTimer); return; }
-    el.innerHTML = renderCountdown();
-  }, 1000);
+  if (!launched) {
+    window._countdownTimer = setInterval(() => {
+      const el = document.getElementById('countdown');
+      if (!el) { clearInterval(window._countdownTimer); return; }
+      el.innerHTML = renderCountdown();
+      // Om vi precis passerade LAUNCH_DATE, ladda om sidan så CTA-knapparna visas
+      if (isLaunched()) { clearInterval(window._countdownTimer); publicDashboard(); }
+    }, 1000);
+  }
 
   // Dold admin-ingång: klicka logotypen 5 gånger för att komma till login
   let logoClicks = 0;
@@ -1475,8 +1593,10 @@ async function publicDashboard() {
     if (logoClicks >= 5) navigate('/login');
   };
 
-  // Submit handler
-  document.getElementById('waitlist-form').onsubmit = async e => {
+  // Submit handler — bara om formuläret finns (innan lansering)
+  const waitlistForm = document.getElementById('waitlist-form');
+  if (!waitlistForm) return;
+  waitlistForm.onsubmit = async e => {
     e.preventDefault();
     const btn = document.getElementById('signup-btn');
     btn.disabled = true;
