@@ -1910,6 +1910,18 @@ function bindClearImported(u) {
   };
 }
 
+// Bygg en kompakt storlek-rad: "3.4 ldm · 1200 kg · 4 pall"
+function formatSize(b) {
+  const parts = [];
+  if (b.flm) parts.push(`<b>${b.flm}</b> ldm`);
+  if (b.weight) {
+    const w = b.weight >= 1000 ? `<b>${(b.weight/1000).toLocaleString('sv-SE', {maximumFractionDigits:1})}</b> ton` : `<b>${b.weight.toLocaleString('sv-SE')}</b> kg`;
+    parts.push(w);
+  }
+  if (b.pallets) parts.push(`<b>${b.pallets}</b> pall`);
+  return parts.join(' · ');
+}
+
 function renderBookingTable(list, perspective) {
   return `<table>
     <thead><tr>
@@ -1918,20 +1930,24 @@ function renderBookingTable(list, perspective) {
       <th>Status</th>
     </tr></thead>
     <tbody>
-    ${list.map(b => `
+    ${list.map(b => {
+      const size = formatSize(b);
+      return `
       <tr data-id="${b.id}" onclick="location.hash='#/booking/${b.id}'" style="cursor:pointer">
-        <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b><br>
-            <span class="muted" style="font-size:11px">
+        <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b>
+            ${size ? `<div style="font-size:12px;color:#374151;margin-top:3px">${size}</div>` : ''}
+            <div style="margin-top:3px">
               ${b.adr ? '<span class="badge feature">ADR</span>' : ''}
               ${b.tailLift ? '<span class="badge feature">Bakgavellift</span>' : ''}
               ${b.openSide ? '<span class="badge feature">Öppningsbar sida</span>' : ''}
-            </span></td>
+            </div></td>
         <td>${esc(b.loadDate)} ${esc(b.loadTime || '')}</td>
         <td>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</td>
         <td>${fmtMoney(b.price)}</td>
         ${perspective === 'admin' ? `<td>${esc(b._buyerName || '?')}</td><td>${esc(b._haulerName || '—')}</td>` : ''}
         <td><span class="badge ${b.status}">${STATUS_LABEL[b.status]}</span></td>
-      </tr>`).join('')}
+      </tr>`;
+    }).join('')}
     </tbody>
   </table>`;
 }
@@ -2182,10 +2198,13 @@ route(/^\/available$/, async (_m, u) => {
           <th>Från → Till</th>${u.role === 'admin' ? '<th>📨 Avsändare</th>' : ''}<th>Lastning</th><th>Lossning</th><th>Krav</th><th>Pris</th>${canSeeCommission(u) ? '<th>Netto åkare</th>' : ''}${u.role === 'admin' ? '<th></th>' : ''}
         </tr></thead>
         <tbody>
-          ${open.map(b => `
+          ${open.map(b => {
+            const size = formatSize(b);
+            return `
             <tr data-id="${b.id}" data-route="${esc(b.fromLocation)} → ${esc(b.toLocation)}" onclick="location.hash='#/booking/${b.id}'" style="cursor:pointer">
               ${u.role === 'admin' ? `<td onclick="event.stopPropagation()" style="text-align:center"><input type="checkbox" class="booking-select" data-id="${b.id}"></td>` : ''}
-              <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
+              <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b>
+                  ${size ? `<div style="font-size:12px;color:#374151;margin-top:3px">${size}</div>` : ''}</td>
               ${u.role === 'admin' ? `<td>${senderLabel(b)}</td>` : ''}
               <td>${esc(b.loadDate)} ${esc(b.loadTime || '')}</td>
               <td>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</td>
@@ -2193,12 +2212,13 @@ route(/^\/available$/, async (_m, u) => {
                 ${b.adr ? '<span class="badge feature">ADR</span>' : ''}
                 ${b.tailLift ? '<span class="badge feature">Bakgavellift</span>' : ''}
                 ${b.openSide ? '<span class="badge feature">Öppningsbar sida</span>' : ''}
-                ${!b.adr && !b.tailLift && !b.openSide ? '<span class="muted">Inga särskilda</span>' : ''}
+                ${!b.adr && !b.tailLift && !b.openSide ? '<span class="muted">—</span>' : ''}
               </td>
               <td>${b.price == null ? '<span class="muted">Önskar prisförslag</span>' : fmtMoney(b.price)}</td>
               ${canSeeCommission(u) ? `<td>${b.price == null ? '<span class="muted">—</span>' : fmtMoney(nettoFor(b.price))}</td>` : ''}
               ${u.role === 'admin' ? `<td class="nowrap" style="text-align:right"><button class="danger icon-btn" data-delbooking="${b.id}" data-route="${esc(b.fromLocation)} → ${esc(b.toLocation)}" title="Radera bokning" onclick="event.stopPropagation()">🗑</button></td>` : ''}
-            </tr>`).join('')}
+            </tr>`;
+          }).join('')}
         </tbody>
       </table>
       ${u.role === 'admin' ? `
