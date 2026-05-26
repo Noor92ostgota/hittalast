@@ -1931,7 +1931,7 @@ function renderBookingTable(list, perspective) {
     ${list.map(b => `
       <tr data-id="${b.id}" onclick="location.hash='#/booking/${b.id}'" style="cursor:pointer">
         <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b>
-            <div style="margin-top:3px">
+            <div style="margin-top:3px;white-space:nowrap">
               ${b.adr ? '<span class="badge feature">ADR</span>' : ''}
               ${b.tailLift ? '<span class="badge feature">Bakgavellift</span>' : ''}
               ${b.openSide ? '<span class="badge feature">Öppningsbar sida</span>' : ''}
@@ -2205,7 +2205,7 @@ route(/^\/available$/, async (_m, u) => {
               <td class="nowrap" style="text-align:center">${cellPallplatser(b)}</td>
               <td>${esc(b.loadDate)} ${esc(b.loadTime || '')}</td>
               <td>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</td>
-              <td>
+              <td class="nowrap">
                 ${b.adr ? '<span class="badge feature">ADR</span>' : ''}
                 ${b.tailLift ? '<span class="badge feature">Bakgavellift</span>' : ''}
                 ${b.openSide ? '<span class="badge feature">Öppningsbar sida</span>' : ''}
