@@ -1987,15 +1987,15 @@ async function haulerDashboard(u) {
 // --------- Åkare: Tillgängliga körningar ---------
 route(/^\/available$/, async (_m, u) => {
   if (!canAcceptAndPost(u)) { toast('Logga in för att se tillgängliga körningar', 'err'); return navigate('/'); }
-  const open = (await db.byIndex('bookings', 'status', 'open')).filter(b => b.buyerId !== u.id);
-  applySort(open);
+  const allOpen = (await db.byIndex('bookings', 'status', 'open')).filter(b => b.buyerId !== u.id);
+  applySort(allOpen);
   const sortKey = getSortKey();
   const sortOpts = Object.entries(SORT_OPTIONS).map(([k,v]) => `<option value="${k}" ${k===sortKey?'selected':''}>${v.label}</option>`).join('');
 
   // Admin: hämta avsändar-info för importerade bokningar (visas bara för admin)
   const invitationMap = {};
   if (u.role === 'admin') {
-    const invIds = [...new Set(open.map(b => b.senderInvitationId).filter(Boolean))];
+    const invIds = [...new Set(allOpen.map(b => b.senderInvitationId).filter(Boolean))];
     if (invIds.length > 0) {
       try {
         const { data: invs } = await sb.from('speditor_invitations').select('id, name, company, email').in('id', invIds);
@@ -2011,18 +2011,53 @@ route(/^\/available$/, async (_m, u) => {
     return lbl ? `<span class="badge" style="background:#fed7aa;color:#9a3412;font-weight:600">${esc(lbl)}</span>` : '<span class="muted">?</span>';
   }
 
+  // Admin: avsändar-filter
+  const senderFilter = u.role === 'admin' ? (sessionStorage.getItem('availSenderFilter') || '') : '';
+  let senderOptions = [];
+  let manualCount = 0;
+  if (u.role === 'admin') {
+    const counts = {};
+    allOpen.forEach(b => {
+      if (b.senderInvitationId) counts[b.senderInvitationId] = (counts[b.senderInvitationId] || 0) + 1;
+      else manualCount++;
+    });
+    senderOptions = Object.entries(counts)
+      .map(([id, count]) => ({ id, count, label: invitationMap[id] || '?' }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  }
+
+  // Tillämpa filter
+  const open = !senderFilter ? allOpen
+    : senderFilter === 'manual' ? allOpen.filter(b => !b.senderInvitationId)
+    : allOpen.filter(b => b.senderInvitationId === senderFilter);
+
+  const filterBadge = senderFilter
+    ? `<span style="background:#f97316;color:#fff;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;margin-left:8px">filtrerad: ${open.length} av ${allOpen.length}</span>`
+    : '';
+
   mount(`
-    <h2>Tillgängliga körningar ${open.length > 0 ? `<span class="muted" style="font-size:14px;font-weight:400">(${open.length} st)</span>` : ''}</h2>
-    <div class="btn-row">
+    <h2>Tillgängliga körningar ${allOpen.length > 0 ? `<span class="muted" style="font-size:14px;font-weight:400">(${allOpen.length} st)</span>` : ''}${filterBadge}</h2>
+    <div class="btn-row" style="flex-wrap:wrap;align-items:center">
       <label class="btn secondary" style="margin:0;display:inline-flex;align-items:center;gap:8px;cursor:pointer">
         ↕ Sortera:
         <select id="sortSelectAvail" style="border:none;background:transparent;color:inherit;font:inherit;cursor:pointer">${sortOpts}</select>
       </label>
-      ${u.role === 'admin' && open.length > 0 ? `<button class="danger" id="clearAllOpenBtn" style="margin-left:auto">🧹 Rensa alla tillgängliga</button>` : ''}
+      ${u.role === 'admin' && (senderOptions.length > 0 || manualCount > 0) ? `
+        <label class="btn secondary" style="margin:0;display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+          📨 Avsändare:
+          <select id="senderFilterSelect" style="border:none;background:transparent;color:inherit;font:inherit;cursor:pointer;max-width:280px">
+            <option value="">Alla (${allOpen.length})</option>
+            ${senderOptions.map(s => `<option value="${esc(s.id)}" ${s.id === senderFilter ? 'selected' : ''}>${esc(s.label)} (${s.count})</option>`).join('')}
+            ${manualCount > 0 ? `<option value="manual" ${senderFilter === 'manual' ? 'selected' : ''}>Manuella (${manualCount})</option>` : ''}
+          </select>
+        </label>
+        ${senderFilter ? `<button class="secondary" id="clearSenderFilterBtn" style="margin:0">✕ Rensa filter</button>` : ''}
+      ` : ''}
+      ${u.role === 'admin' && allOpen.length > 0 ? `<button class="danger" id="clearAllOpenBtn" style="margin-left:auto">🧹 Rensa alla tillgängliga</button>` : ''}
     </div>
     <div class="banner info">Kontaktuppgifter till uppdragsgivaren visas först när du accepterar uppdraget.</div>
     <div class="card">
-      ${open.length === 0 ? `<div class="empty">Inga öppna körningar just nu.</div>`
+      ${open.length === 0 ? `<div class="empty">${senderFilter ? 'Inga körningar matchar valt filter.' : 'Inga öppna körningar just nu.'}</div>`
       : `<table>
         <thead><tr>
           ${u.role === 'admin' ? `<th style="width:32px"><input type="checkbox" id="selectAllBookings" title="Markera alla"></th>` : ''}
@@ -2062,6 +2097,18 @@ route(/^\/available$/, async (_m, u) => {
   bindRowClicks();
   const ss = document.getElementById('sortSelectAvail');
   if (ss) ss.onchange = () => { setSortKey(ss.value); navigate('/available'); };
+
+  // Avsändar-filter event handlers (admin)
+  const sf = document.getElementById('senderFilterSelect');
+  if (sf) sf.onchange = () => {
+    sessionStorage.setItem('availSenderFilter', sf.value);
+    navigate('/available');
+  };
+  const clearSf = document.getElementById('clearSenderFilterBtn');
+  if (clearSf) clearSf.onclick = () => {
+    sessionStorage.removeItem('availSenderFilter');
+    navigate('/available');
+  };
 
   // Admin: enskild radering via 🗑-knapp (CASCADE i DB tar hand om bids/msgs/notifs)
   document.querySelectorAll('button[data-delbooking]').forEach(btn => {
