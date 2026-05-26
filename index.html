@@ -1027,6 +1027,52 @@ function updateBellBadge(count) {
   }
 }
 
+// --------- Notifikationsljud (på/av per användare via localStorage) ---------
+function isSoundEnabled() {
+  return localStorage.getItem('hittalast_sound') !== 'off';
+}
+function setSoundEnabled(on) {
+  localStorage.setItem('hittalast_sound', on ? 'on' : 'off');
+  updateSoundButton();
+}
+function updateSoundButton() {
+  const btn = document.getElementById('sound-toggle');
+  if (!btn) return;
+  const on = isSoundEnabled();
+  btn.textContent = on ? '🔊' : '🔇';
+  btn.title = on ? 'Notifikationsljud PÅ (klicka för att stänga av)' : 'Notifikationsljud AV (klicka för att slå på)';
+}
+function playNotificationSound() {
+  if (!isSoundEnabled()) return;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    function beep(freq, when, duration, vol = 0.25) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = freq;
+      osc.type = 'sine';
+      const t0 = ctx.currentTime + when;
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(vol, t0 + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+      osc.start(t0);
+      osc.stop(t0 + duration + 0.02);
+    }
+    // Två-tonigt vänligt "ding-dong"
+    beep(880, 0, 0.18);
+    beep(1320, 0.18, 0.22);
+    // Stäng context efter klart för att spara minne
+    setTimeout(() => ctx.close().catch(() => {}), 1000);
+  } catch (e) {
+    console.warn('Notifikationsljud-fel:', e);
+  }
+}
+
 window.addEventListener('hashchange', render);
 
 // Periodisk koll för nya aviseringar — uppdaterar BARA badge:n, inte hela sidan
@@ -1037,7 +1083,10 @@ setInterval(async () => {
   if (count !== _unreadCache) {
     const delta = count - _unreadCache;
     _unreadCache = count;
-    if (delta > 0) toast(`Du har ${delta} ny${delta === 1 ? '' : 'a'} avisering${delta === 1 ? '' : 'ar'}`);
+    if (delta > 0) {
+      toast(`Du har ${delta} ny${delta === 1 ? '' : 'a'} avisering${delta === 1 ? '' : 'ar'}`);
+      playNotificationSound();
+    }
     updateBellBadge(count);
   }
 }, 15000);
@@ -1049,6 +1098,7 @@ function layout(inner) {
   const navLinks = u ? roleNav(u) : publicNav();
   const unread = u ? _unreadCache : 0;
   const bell = u ? `<a href="#/notifications" title="Aviseringar" class="bell-link">🔔<span class="label" style="margin-left:6px">Aviseringar</span>${unread>0?`<span class="bell-badge">${unread}</span>`:''}</a>` : '';
+  const soundBtn = u ? `<button id="sound-toggle" type="button" title="${isSoundEnabled()?'Notifikationsljud PÅ':'Notifikationsljud AV'}" style="background:none;border:none;font-size:18px;cursor:pointer;padding:0 6px;line-height:1">${isSoundEnabled()?'🔊':'🔇'}</button>` : '';
   const userBlock = u ? `<span class="who">${esc(u.name)} · ${ROLE_LABEL[u.role]}</span>
                <a href="#" id="logout-link"><span class="label">Logga ut</span> ↩</a>` : '';
   return `
@@ -1060,6 +1110,7 @@ function layout(inner) {
       <nav id="topnav">
         ${navLinks}
         ${bell}
+        ${soundBtn}
         ${userBlock}
       </nav>
     </header>
@@ -1089,6 +1140,16 @@ function mount(html) {
   document.getElementById('app').innerHTML = layout(html);
   const lo = document.getElementById('logout-link');
   if (lo) lo.onclick = async e => { e.preventDefault(); await supabaseLogout(); closeNav(); navigate('/login'); };
+
+  // Sound-toggle: klicka för att slå på/av notifikationsljud
+  const soundBtn = document.getElementById('sound-toggle');
+  if (soundBtn) soundBtn.onclick = (e) => {
+    e.preventDefault();
+    const newState = !isSoundEnabled();
+    setSoundEnabled(newState);
+    toast(newState ? '🔊 Notifikationsljud påslaget' : '🔇 Notifikationsljud avstängt');
+    if (newState) playNotificationSound(); // ge en bekräftelse-ding
+  };
 
   // Hamburgarmeny på mobil
   const burger = document.getElementById('hamburger');
