@@ -4774,10 +4774,11 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
   users[threadHauler.id] = threadHauler;
 
   const dealClosed = b.status !== 'open';
-  const canWrite = !isAdmin && b.status !== 'completed' && (
-    me.id === buyer.id ||
-    me.id === threadHauler.id
-  );
+  // Skriva: man måste vara part i konversationen (köpare eller tråd-åkare).
+  // Admin som är part får också skriva — bara "ren admin" (inte involverad) blockeras.
+  const isInvolved = me.id === buyer.id || me.id === threadHauler.id;
+  const canWrite = b.status !== 'completed' && isInvolved;
+  const adminOnlyViewer = isAdmin && !isInvolved;
 
   // Pseudonym före accept: A för uppdragsgivare, B för motparten
   const aliasFor = (uid) => {
@@ -4811,7 +4812,10 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
         <textarea id="chat-txt" placeholder="Skriv ett meddelande..."></textarea>
         <button id="chat-send">Skicka</button>
       </div>
-      <div id="chat-warn" class="banner err" style="display:none;margin-top:6px"></div>` : (isAdmin ? `<div class="muted" style="margin-top:8px;font-size:12px">Du ser chatten som admin men kan inte skriva.</div>` : '')}
+      <div id="chat-warn" class="banner err" style="display:none;margin-top:6px"></div>`
+      : adminOnlyViewer ? `<div class="muted" style="margin-top:8px;font-size:12px">Du ser chatten som admin men kan inte skriva (du är inte part i konversationen).</div>`
+      : b.status === 'completed' ? `<div class="muted" style="margin-top:8px;font-size:12px">Chatten är låst — uppdraget är utfört.</div>`
+      : ''}
   `;
 
   const box = document.getElementById('chat-box');
