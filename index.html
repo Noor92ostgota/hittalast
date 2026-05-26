@@ -1404,11 +1404,14 @@ async function publicDashboard() {
                 <label>Företag</label>
                 <input type="text" name="company" placeholder="Östgöta Åkeri AB" autocomplete="organization">
 
+                <label>Organisationsnummer</label>
+                <input type="text" name="organization_number" placeholder="556677-1234" inputmode="numeric" maxlength="13" pattern="[0-9 \-]*">
+
                 <label>Telefon</label>
                 <input type="tel" name="phone" placeholder="070-123 45 67" autocomplete="tel">
 
                 <label>Roll</label>
-                <input type="text" name="role" placeholder="t.ex. VD, Trafikledare, Åkare, Chaufför…" autocomplete="organization-title" maxlength="80">
+                <input type="text" name="role" placeholder="t.ex. VD, Trafikledare, Åkare, Disponent…" autocomplete="organization-title" maxlength="80">
 
                 <label>Storlek på fordonsflotta</label>
                 <select name="fleet_size">
@@ -1488,6 +1491,7 @@ async function publicDashboard() {
         email,
         name: (f.get('name') || '').trim() || null,
         company: (f.get('company') || '').trim() || null,
+        organization_number: (f.get('organization_number') || '').trim() || null,
         phone: (f.get('phone') || '').trim() || null,
         role: (f.get('role') || '').trim() || null,
         fleet_size: f.get('fleet_size') || null,
@@ -3109,12 +3113,13 @@ route(/^\/waitlist$/, async (_m, u) => {
     <div class="muted" style="margin-bottom:12px">Personer som anmält sig till lansering 1 juni 2026.</div>
     <div class="card">
       ${rows.length === 0 ? `<div class="empty">Inga anmälningar ännu.</div>` : `<table class="compact">
-        <thead><tr><th>Datum</th><th>E-post</th><th>Namn</th><th>Företag</th><th>Telefon</th><th>Roll</th><th>Flotta</th></tr></thead>
+        <thead><tr><th>Datum</th><th>E-post</th><th>Namn</th><th>Företag</th><th>Org.nr</th><th>Telefon</th><th>Roll</th><th>Flotta</th></tr></thead>
         <tbody>${rows.map(r => `<tr>
           <td class="nowrap">${fmtDate(r.created_at)}</td>
           <td><b>${esc(r.email)}</b></td>
           <td>${esc(r.name || '—')}</td>
           <td>${esc(r.company || '—')}</td>
+          <td>${esc(r.organization_number || '—')}</td>
           <td>${esc(r.phone || '—')}</td>
           <td>${esc(r.role || '—')}</td>
           <td>${esc(r.fleet_size || '—')}</td>
