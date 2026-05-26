@@ -1991,6 +1991,26 @@ route(/^\/available$/, async (_m, u) => {
   applySort(open);
   const sortKey = getSortKey();
   const sortOpts = Object.entries(SORT_OPTIONS).map(([k,v]) => `<option value="${k}" ${k===sortKey?'selected':''}>${v.label}</option>`).join('');
+
+  // Admin: hämta avsändar-info för importerade bokningar (visas bara för admin)
+  const invitationMap = {};
+  if (u.role === 'admin') {
+    const invIds = [...new Set(open.map(b => b.senderInvitationId).filter(Boolean))];
+    if (invIds.length > 0) {
+      try {
+        const { data: invs } = await sb.from('speditor_invitations').select('id, name, company, email').in('id', invIds);
+        (invs || []).forEach(inv => {
+          invitationMap[inv.id] = inv.company || inv.name || (inv.email ? inv.email.split('@')[1] : '?');
+        });
+      } catch (err) { console.warn('Kunde inte hämta invitations:', err); }
+    }
+  }
+  function senderLabel(b) {
+    if (!b.senderInvitationId) return '<span class="muted">—</span>';
+    const lbl = invitationMap[b.senderInvitationId];
+    return lbl ? `<span class="badge" style="background:#fed7aa;color:#9a3412;font-weight:600">${esc(lbl)}</span>` : '<span class="muted">?</span>';
+  }
+
   mount(`
     <h2>Tillgängliga körningar ${open.length > 0 ? `<span class="muted" style="font-size:14px;font-weight:400">(${open.length} st)</span>` : ''}</h2>
     <div class="btn-row">
@@ -2006,13 +2026,14 @@ route(/^\/available$/, async (_m, u) => {
       : `<table>
         <thead><tr>
           ${u.role === 'admin' ? `<th style="width:32px"><input type="checkbox" id="selectAllBookings" title="Markera alla"></th>` : ''}
-          <th>Från → Till</th><th>Lastning</th><th>Lossning</th><th>Krav</th><th>Pris</th>${canSeeCommission(u) ? '<th>Netto åkare</th>' : ''}${u.role === 'admin' ? '<th></th>' : ''}
+          <th>Från → Till</th>${u.role === 'admin' ? '<th>📨 Avsändare</th>' : ''}<th>Lastning</th><th>Lossning</th><th>Krav</th><th>Pris</th>${canSeeCommission(u) ? '<th>Netto åkare</th>' : ''}${u.role === 'admin' ? '<th></th>' : ''}
         </tr></thead>
         <tbody>
           ${open.map(b => `
             <tr data-id="${b.id}" data-route="${esc(b.fromLocation)} → ${esc(b.toLocation)}" onclick="location.hash='#/booking/${b.id}'" style="cursor:pointer">
               ${u.role === 'admin' ? `<td onclick="event.stopPropagation()" style="text-align:center"><input type="checkbox" class="booking-select" data-id="${b.id}"></td>` : ''}
               <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
+              ${u.role === 'admin' ? `<td>${senderLabel(b)}</td>` : ''}
               <td>${esc(b.loadDate)} ${esc(b.loadTime || '')}</td>
               <td>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</td>
               <td>
