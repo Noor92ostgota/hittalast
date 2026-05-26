@@ -1683,6 +1683,9 @@ async function unifiedDashboard(u) {
     }
   }
 
+  // Bygg avsändar-map för admin (visas i Tillgängliga körningar-sektionen)
+  const senderMap = await buildSenderMap(u, [...available, ...myActive, ...accAcceptedActive]);
+
   mount(`
     <h2>Hej ${esc(u.name)}!</h2>
     ${trialBanner}
@@ -1704,18 +1707,18 @@ async function unifiedDashboard(u) {
     <div class="card">
       <h3>📋 Tillgängliga körningar (${available.length})</h3>
       <div class="muted" style="margin-bottom:8px">Acceptera ett uppdrag — kontaktuppgifter visas efter accept.</div>
-      ${available.length === 0 ? `<div class="empty">Inga öppna körningar från andra just nu.</div>` : renderBookingTable(available, 'hauler')}
+      ${available.length === 0 ? `<div class="empty">Inga öppna körningar från andra just nu.</div>` : renderBookingTable(available, 'hauler', senderMap)}
     </div>
 
     <div class="card">
       <h3>📝 Mina publicerade körningar (${myActive.length})</h3>
       <div class="muted" style="margin-bottom:8px;font-size:12px">Aktuella uppdrag (öppna och pågående). Utförda hamnar längre ner.</div>
-      ${myActive.length === 0 ? `<div class="empty">Du har inga aktiva publicerade körningar.</div>` : renderBookingTable(myActive, 'buyer')}
+      ${myActive.length === 0 ? `<div class="empty">Du har inga aktiva publicerade körningar.</div>` : renderBookingTable(myActive, 'buyer', senderMap)}
     </div>
 
     ${accAcceptedActive.length > 0 ? `<div class="card">
       <h3>🚛 Uppdrag jag accepterat (${accAcceptedActive.length})</h3>
-      ${renderBookingTable(accAcceptedActive, 'hauler')}
+      ${renderBookingTable(accAcceptedActive, 'hauler', senderMap)}
     </div>` : ''}
   `);
   bindRowClicks();
@@ -1920,10 +1923,16 @@ function cellVikt(b) {
 }
 function cellPallplatser(b) { return b.pallets ? `<b>${b.pallets}</b>` : '<span class="muted">—</span>'; }
 
-function renderBookingTable(list, perspective) {
+function renderBookingTable(list, perspective, senderMap) {
+  const showSender = !!senderMap;
+  function senderCell(b) {
+    if (!b.senderInvitationId) return '<span class="muted">—</span>';
+    const lbl = senderMap[b.senderInvitationId];
+    return lbl ? `<span class="badge" style="background:#fed7aa;color:#9a3412;font-weight:600">${esc(lbl)}</span>` : '<span class="muted">?</span>';
+  }
   return `<table>
     <thead><tr>
-      <th>Från → Till</th><th>Flm</th><th>Vikt</th><th>Antal pallplatser</th><th>Lastning</th><th>Lossning</th><th>Pris</th>
+      <th>Från → Till</th>${showSender ? '<th>📨 Avsändare</th>' : ''}<th>Flm</th><th>Vikt</th><th>Antal pallplatser</th><th>Lastning</th><th>Lossning</th><th>Pris</th>
       ${perspective === 'admin' ? '<th>Uppdragsgivare</th><th>Utförande åkare</th>' : ''}
       <th>Status</th>
     </tr></thead>
@@ -1936,6 +1945,7 @@ function renderBookingTable(list, perspective) {
               ${b.tailLift ? '<span class="badge feature">Bakgavellift</span>' : ''}
               ${b.openSide ? '<span class="badge feature">Öppningsbar sida</span>' : ''}
             </div></td>
+        ${showSender ? `<td>${senderCell(b)}</td>` : ''}
         <td class="nowrap">${cellFlm(b)}</td>
         <td class="nowrap">${cellVikt(b)}</td>
         <td class="nowrap" style="text-align:center">${cellPallplatser(b)}</td>
@@ -1947,6 +1957,24 @@ function renderBookingTable(list, perspective) {
       </tr>`).join('')}
     </tbody>
   </table>`;
+}
+
+// Hjälpare: bygg avsändar-map för admin (importerade bokningar)
+async function buildSenderMap(u, allBookings) {
+  if (u.role !== 'admin') return null;
+  const invIds = [...new Set(allBookings.map(b => b.senderInvitationId).filter(Boolean))];
+  if (invIds.length === 0) return null;
+  try {
+    const { data: invs } = await sb.from('speditor_invitations').select('id, name, company, email').in('id', invIds);
+    const map = {};
+    (invs || []).forEach(inv => {
+      map[inv.id] = inv.company || inv.name || (inv.email ? inv.email.split('@')[1] : '?');
+    });
+    return map;
+  } catch (err) {
+    console.warn('Kunde inte hämta invitations:', err);
+    return null;
+  }
 }
 
 function bindRowClicks() {
@@ -3217,6 +3245,9 @@ async function adminDashboard(u) {
   // Räkna anmälningar på väntelistan
   const { count: waitlistCount } = await sb.from('waitlist').select('*', { count: 'exact', head: true });
 
+  // Bygg avsändar-map för importerade körningar
+  const senderMap = await buildSenderMap(u, bookings);
+
   mount(`
     <h2>Admin — översikt</h2>
     <div class="stats">
@@ -3229,7 +3260,7 @@ async function adminDashboard(u) {
     ${(waitlistCount || 0) > 0 ? `<div class="btn-row" style="margin-bottom:12px"><a class="btn secondary" href="#/waitlist">📋 Visa väntelista</a></div>` : ''}
     <div class="card">
       <h3>Alla körningar</h3>
-      ${bookings.length === 0 ? `<div class="empty">Inga körningar</div>` : renderBookingTable(bookings, 'admin')}
+      ${bookings.length === 0 ? `<div class="empty">Inga körningar</div>` : renderBookingTable(bookings, 'admin', senderMap)}
     </div>
   `);
   bindRowClicks();
