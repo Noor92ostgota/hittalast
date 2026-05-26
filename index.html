@@ -1910,44 +1910,42 @@ function bindClearImported(u) {
   };
 }
 
-// Bygg en kompakt storlek-rad: "3.4 ldm · 1200 kg · 4 pall"
+// Bygg storlek-cell på 3 rader: FLM, vikt, pallets (stacked)
 function formatSize(b) {
-  const parts = [];
-  if (b.flm) parts.push(`<b>${b.flm}</b> ldm`);
+  const lines = [];
+  if (b.flm) lines.push(`<b>${b.flm}</b> ldm`);
   if (b.weight) {
     const w = b.weight >= 1000 ? `<b>${(b.weight/1000).toLocaleString('sv-SE', {maximumFractionDigits:1})}</b> ton` : `<b>${b.weight.toLocaleString('sv-SE')}</b> kg`;
-    parts.push(w);
+    lines.push(w);
   }
-  if (b.pallets) parts.push(`<b>${b.pallets}</b> pall`);
-  return parts.join(' · ');
+  if (b.pallets) lines.push(`<b>${b.pallets}</b> pall`);
+  if (lines.length === 0) return '<span class="muted">—</span>';
+  return lines.join('<br>');
 }
 
 function renderBookingTable(list, perspective) {
   return `<table>
     <thead><tr>
-      <th>Från → Till</th><th>Lastning</th><th>Lossning</th><th>Pris</th>
+      <th>Från → Till</th><th>Storlek</th><th>Lastning</th><th>Lossning</th><th>Pris</th>
       ${perspective === 'admin' ? '<th>Uppdragsgivare</th><th>Utförande åkare</th>' : ''}
       <th>Status</th>
     </tr></thead>
     <tbody>
-    ${list.map(b => {
-      const size = formatSize(b);
-      return `
+    ${list.map(b => `
       <tr data-id="${b.id}" onclick="location.hash='#/booking/${b.id}'" style="cursor:pointer">
         <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b>
-            ${size ? `<div style="font-size:12px;color:#374151;margin-top:3px">${size}</div>` : ''}
             <div style="margin-top:3px">
               ${b.adr ? '<span class="badge feature">ADR</span>' : ''}
               ${b.tailLift ? '<span class="badge feature">Bakgavellift</span>' : ''}
               ${b.openSide ? '<span class="badge feature">Öppningsbar sida</span>' : ''}
             </div></td>
+        <td style="font-size:13px;line-height:1.5;white-space:nowrap">${formatSize(b)}</td>
         <td>${esc(b.loadDate)} ${esc(b.loadTime || '')}</td>
         <td>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</td>
         <td>${fmtMoney(b.price)}</td>
         ${perspective === 'admin' ? `<td>${esc(b._buyerName || '?')}</td><td>${esc(b._haulerName || '—')}</td>` : ''}
         <td><span class="badge ${b.status}">${STATUS_LABEL[b.status]}</span></td>
-      </tr>`;
-    }).join('')}
+      </tr>`).join('')}
     </tbody>
   </table>`;
 }
@@ -2195,17 +2193,15 @@ route(/^\/available$/, async (_m, u) => {
       : `<table>
         <thead><tr>
           ${u.role === 'admin' ? `<th style="width:32px"><input type="checkbox" id="selectAllBookings" title="Markera alla"></th>` : ''}
-          <th>Från → Till</th>${u.role === 'admin' ? '<th>📨 Avsändare</th>' : ''}<th>Lastning</th><th>Lossning</th><th>Krav</th><th>Pris</th>${canSeeCommission(u) ? '<th>Netto åkare</th>' : ''}${u.role === 'admin' ? '<th></th>' : ''}
+          <th>Från → Till</th>${u.role === 'admin' ? '<th>📨 Avsändare</th>' : ''}<th>Storlek</th><th>Lastning</th><th>Lossning</th><th>Krav</th><th>Pris</th>${canSeeCommission(u) ? '<th>Netto åkare</th>' : ''}${u.role === 'admin' ? '<th></th>' : ''}
         </tr></thead>
         <tbody>
-          ${open.map(b => {
-            const size = formatSize(b);
-            return `
+          ${open.map(b => `
             <tr data-id="${b.id}" data-route="${esc(b.fromLocation)} → ${esc(b.toLocation)}" onclick="location.hash='#/booking/${b.id}'" style="cursor:pointer">
               ${u.role === 'admin' ? `<td onclick="event.stopPropagation()" style="text-align:center"><input type="checkbox" class="booking-select" data-id="${b.id}"></td>` : ''}
-              <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b>
-                  ${size ? `<div style="font-size:12px;color:#374151;margin-top:3px">${size}</div>` : ''}</td>
+              <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
               ${u.role === 'admin' ? `<td>${senderLabel(b)}</td>` : ''}
+              <td style="font-size:13px;line-height:1.5;white-space:nowrap">${formatSize(b)}</td>
               <td>${esc(b.loadDate)} ${esc(b.loadTime || '')}</td>
               <td>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</td>
               <td>
@@ -2217,8 +2213,7 @@ route(/^\/available$/, async (_m, u) => {
               <td>${b.price == null ? '<span class="muted">Önskar prisförslag</span>' : fmtMoney(b.price)}</td>
               ${canSeeCommission(u) ? `<td>${b.price == null ? '<span class="muted">—</span>' : fmtMoney(nettoFor(b.price))}</td>` : ''}
               ${u.role === 'admin' ? `<td class="nowrap" style="text-align:right"><button class="danger icon-btn" data-delbooking="${b.id}" data-route="${esc(b.fromLocation)} → ${esc(b.toLocation)}" title="Radera bokning" onclick="event.stopPropagation()">🗑</button></td>` : ''}
-            </tr>`;
-          }).join('')}
+            </tr>`).join('')}
         </tbody>
       </table>
       ${u.role === 'admin' ? `
