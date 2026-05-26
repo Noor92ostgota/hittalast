@@ -1042,14 +1042,36 @@ function updateSoundButton() {
   btn.textContent = on ? '🔊' : '🔇';
   btn.title = on ? 'Notifikationsljud PÅ (klicka för att stänga av)' : 'Notifikationsljud AV (klicka för att slå på)';
 }
-function playNotificationSound() {
-  if (!isSoundEnabled()) return;
+
+// Global AudioContext (skapas en gång, återanvänds) — kringgår autoplay-blockad
+let _audioCtx = null;
+function getAudioCtx() {
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-    function beep(freq, when, duration, vol = 0.25) {
+    if (!Ctx) return null;
+    if (!_audioCtx) _audioCtx = new Ctx();
+    if (_audioCtx.state === 'suspended') _audioCtx.resume().catch(() => {});
+    return _audioCtx;
+  } catch (e) {
+    console.warn('AudioContext-fel:', e);
+    return null;
+  }
+}
+// Lås upp ljud vid första användarinteraktion (krävs av Chrome/Safari)
+function unlockAudio() {
+  const ctx = getAudioCtx();
+  if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+}
+document.addEventListener('click', unlockAudio, { capture: true });
+document.addEventListener('keydown', unlockAudio, { capture: true });
+document.addEventListener('touchstart', unlockAudio, { capture: true });
+
+function playNotificationSound() {
+  if (!isSoundEnabled()) return;
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  try {
+    function beep(freq, when, duration, vol = 0.45) {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
@@ -1061,13 +1083,12 @@ function playNotificationSound() {
       gain.gain.linearRampToValueAtTime(vol, t0 + 0.01);
       gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
       osc.start(t0);
-      osc.stop(t0 + duration + 0.02);
+      osc.stop(t0 + duration + 0.05);
     }
-    // Två-tonigt vänligt "ding-dong"
+    // Tre-tonigt "DING-DING-DING" — tydligt och uppmärksamhetsfångande
     beep(880, 0, 0.18);
-    beep(1320, 0.18, 0.22);
-    // Stäng context efter klart för att spara minne
-    setTimeout(() => ctx.close().catch(() => {}), 1000);
+    beep(1100, 0.20, 0.18);
+    beep(1320, 0.40, 0.30);
   } catch (e) {
     console.warn('Notifikationsljud-fel:', e);
   }
