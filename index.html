@@ -1910,23 +1910,20 @@ function bindClearImported(u) {
   };
 }
 
-// Bygg storlek-cell på 3 rader: FLM, vikt, pallets (stacked)
-function formatSize(b) {
-  const lines = [];
-  if (b.flm) lines.push(`<b>${b.flm}</b> ldm`);
-  if (b.weight) {
-    const w = b.weight >= 1000 ? `<b>${(b.weight/1000).toLocaleString('sv-SE', {maximumFractionDigits:1})}</b> ton` : `<b>${b.weight.toLocaleString('sv-SE')}</b> kg`;
-    lines.push(w);
-  }
-  if (b.pallets) lines.push(`<b>${b.pallets}</b> pall`);
-  if (lines.length === 0) return '<span class="muted">—</span>';
-  return lines.join('<br>');
+// Cell-hjälpare för Flm / Vikt / Antal pallplatser
+function cellFlm(b)     { return b.flm     ? `<b>${b.flm}</b>` : '<span class="muted">—</span>'; }
+function cellVikt(b) {
+  if (!b.weight) return '<span class="muted">—</span>';
+  return b.weight >= 1000
+    ? `<b>${(b.weight/1000).toLocaleString('sv-SE', {maximumFractionDigits:1})}</b> ton`
+    : `<b>${b.weight.toLocaleString('sv-SE')}</b> kg`;
 }
+function cellPallplatser(b) { return b.pallets ? `<b>${b.pallets}</b>` : '<span class="muted">—</span>'; }
 
 function renderBookingTable(list, perspective) {
   return `<table>
     <thead><tr>
-      <th>Från → Till</th><th>Storlek</th><th>Lastning</th><th>Lossning</th><th>Pris</th>
+      <th>Från → Till</th><th>Flm</th><th>Vikt</th><th>Antal pallplatser</th><th>Lastning</th><th>Lossning</th><th>Pris</th>
       ${perspective === 'admin' ? '<th>Uppdragsgivare</th><th>Utförande åkare</th>' : ''}
       <th>Status</th>
     </tr></thead>
@@ -1939,7 +1936,9 @@ function renderBookingTable(list, perspective) {
               ${b.tailLift ? '<span class="badge feature">Bakgavellift</span>' : ''}
               ${b.openSide ? '<span class="badge feature">Öppningsbar sida</span>' : ''}
             </div></td>
-        <td style="font-size:13px;line-height:1.5;white-space:nowrap">${formatSize(b)}</td>
+        <td class="nowrap">${cellFlm(b)}</td>
+        <td class="nowrap">${cellVikt(b)}</td>
+        <td class="nowrap" style="text-align:center">${cellPallplatser(b)}</td>
         <td>${esc(b.loadDate)} ${esc(b.loadTime || '')}</td>
         <td>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</td>
         <td>${fmtMoney(b.price)}</td>
@@ -2193,7 +2192,7 @@ route(/^\/available$/, async (_m, u) => {
       : `<table>
         <thead><tr>
           ${u.role === 'admin' ? `<th style="width:32px"><input type="checkbox" id="selectAllBookings" title="Markera alla"></th>` : ''}
-          <th>Från → Till</th>${u.role === 'admin' ? '<th>📨 Avsändare</th>' : ''}<th>Storlek</th><th>Lastning</th><th>Lossning</th><th>Krav</th><th>Pris</th>${canSeeCommission(u) ? '<th>Netto åkare</th>' : ''}${u.role === 'admin' ? '<th></th>' : ''}
+          <th>Från → Till</th>${u.role === 'admin' ? '<th>📨 Avsändare</th>' : ''}<th>Flm</th><th>Vikt</th><th>Antal pallplatser</th><th>Lastning</th><th>Lossning</th><th>Krav</th><th>Pris</th>${canSeeCommission(u) ? '<th>Netto åkare</th>' : ''}${u.role === 'admin' ? '<th></th>' : ''}
         </tr></thead>
         <tbody>
           ${open.map(b => `
@@ -2201,7 +2200,9 @@ route(/^\/available$/, async (_m, u) => {
               ${u.role === 'admin' ? `<td onclick="event.stopPropagation()" style="text-align:center"><input type="checkbox" class="booking-select" data-id="${b.id}"></td>` : ''}
               <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
               ${u.role === 'admin' ? `<td>${senderLabel(b)}</td>` : ''}
-              <td style="font-size:13px;line-height:1.5;white-space:nowrap">${formatSize(b)}</td>
+              <td class="nowrap">${cellFlm(b)}</td>
+              <td class="nowrap">${cellVikt(b)}</td>
+              <td class="nowrap" style="text-align:center">${cellPallplatser(b)}</td>
               <td>${esc(b.loadDate)} ${esc(b.loadTime || '')}</td>
               <td>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</td>
               <td>
