@@ -1257,7 +1257,7 @@ async function render() {
 
   // Publika rutter (utan inlogg)
   const publicHashes = ['/', '/login', '/register', '/signup'];
-  const isPublicMagicLink = /^\/(r|opt-out|launch)\/[a-f0-9]+$/.test(hash);
+  const isPublicMagicLink = /^\/(r|opt-out|launch|accept-driver)\/[a-f0-9]+$/.test(hash);
   if (!user && !publicHashes.includes(hash) && !isPublicMagicLink) {
     return navigate('/');
   }
@@ -3314,36 +3314,47 @@ route(/^\/drivers$/, async (_m, u) => {
   mount(`
     <h2>Mina chaufförer (${list.length})</h2>
     <div class="btn-row"><a class="btn" href="#/drivers/new">➕ Lägg till chaufför</a></div>
-    <div class="banner info">Chaufförer loggar in med sin e-post och får se sina tilldelade uppdrag — men inte priser eller marginaler.</div>
+    <div class="banner info">När du lägger till en chaufför skickas en inbjudningslänk till hans/hennes mejl. Chauffören väljer själv lösenord vid första inloggningen och får sedan se sina tilldelade uppdrag.</div>
     <div class="card">
-      ${list.length === 0 ? `<div class="empty">Inga chaufförer ännu.</div>`
+      ${list.length === 0 ? `<div class="empty">Inga chaufförer ännu. Klicka 'Lägg till chaufför' för att bjuda in din första.</div>`
       : `<table>
-          <thead><tr><th>Namn</th><th>E-post (login)</th><th>Telefon</th><th>Standardbil</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Namn</th><th>E-post</th><th>Telefon</th><th>Standardbil</th><th>Status</th><th></th></tr></thead>
           <tbody>
-          ${list.map(d => `<tr>
-            <td><b>${esc(d.name)}</b></td>
-            <td>${esc(d.email)}</td>
-            <td>${esc(d.phone || '—')}</td>
-            <td>${d.defaultVehicleId && vById[d.defaultVehicleId] ? esc(vById[d.defaultVehicleId].regNr) : '<span class="muted">—</span>'}</td>
-            <td>${d.active === false ? '<span class="badge">Avaktiverad</span>' : '<span class="badge feature">Aktiv</span>'}</td>
-            <td>
-              <a class="btn secondary" href="#/drivers/${d.id}/edit">Ändra</a>
-              <button class="danger" data-del="${d.id}">Ta bort</button>
-            </td>
-          </tr>`).join('')}
+          ${list.map(d => {
+            const accStatus = d.acceptedAt
+              ? `<span class="badge accepted">✅ Registrerad</span>`
+              : d.invitedAt
+                ? `<span class="badge open">📧 Inbjuden</span>`
+                : `<span class="muted">Ej inbjuden</span>`;
+            const actStatus = d.active === false ? `<span class="badge">Avaktiverad</span>` : '';
+            return `<tr>
+              <td><b>${esc(d.name)}</b></td>
+              <td>${esc(d.email)}</td>
+              <td>${esc(d.phone || '—')}</td>
+              <td>${d.vehicleId && vById[d.vehicleId] ? esc(vById[d.vehicleId].regNr) : '<span class="muted">—</span>'}</td>
+              <td>${accStatus} ${actStatus}</td>
+              <td class="nowrap">
+                <a class="btn secondary" href="#/drivers/${d.id}/edit">Ändra</a>
+                <button class="danger" data-del="${d.id}">Ta bort</button>
+              </td>
+            </tr>`;
+          }).join('')}
           </tbody>
         </table>`}
     </div>
   `);
   document.querySelectorAll('button[data-del]').forEach(btn => {
     btn.onclick = async () => {
-      if (!confirm('Ta bort chauffören? Inloggningen tas bort.')) return;
+      if (!confirm('Ta bort chauffören från din flotta?')) return;
       const id = btn.dataset.del;
-      const d = await db.get('drivers', id);
-      if (d && d.userId) { try { await db.del('users', d.userId); } catch(_){} }
-      await db.del('drivers', id);
-      toast('Borttagen');
-      navigate('/drivers');
+      try {
+        const { error } = await sb.from('drivers').delete().eq('id', id);
+        if (error) throw error;
+        toast('Borttagen');
+        navigate('/drivers');
+      } catch (err) {
+        toast('Kunde inte ta bort: ' + (err.message || err), 'err');
+      }
     };
   });
 });
@@ -3352,20 +3363,18 @@ async function driverForm(d, u) {
   d = d || {};
   const vehicles = await db.byIndex('vehicles', 'haulerId', u.id);
   const vehOpts = `<option value="">— ingen —</option>` +
-    vehicles.map(v => `<option value="${v.id}" ${d.defaultVehicleId===v.id?'selected':''}>${esc(v.regNr)} ${esc(v.model || '')}</option>`).join('');
+    vehicles.map(v => `<option value="${v.id}" ${d.vehicleId===v.id?'selected':''}>${esc(v.regNr)} ${esc(v.model || '')}</option>`).join('');
   return `
     <div class="card">
+      ${!d.id ? `<div class="banner info" style="margin-bottom:14px">📧 När du lägger till chauffören skickas en inbjudningslänk till hans/hennes e-postadress. Chauffören väljer själv lösenord när hen accepterar inbjudan.</div>` : ''}
       <form id="drvForm">
         <div class="row">
-          <div class="field"><label>Namn</label><input name="name" required value="${esc(d.name || '')}"></div>
+          <div class="field"><label>Namn *</label><input name="name" required value="${esc(d.name || '')}"></div>
           <div class="field"><label>Telefon</label><input name="phone" value="${esc(d.phone || '')}" placeholder="070-..."></div>
         </div>
+        <div class="field"><label>E-post *</label><input name="email" type="email" required value="${esc(d.email || '')}" ${d.id?'readonly':''} placeholder="${d.id ? '' : 'chaufforens@email.se — inbjudan skickas hit'}"></div>
         <div class="row">
-          <div class="field"><label>E-post (används för inloggning)</label><input name="email" type="email" required value="${esc(d.email || '')}" ${d.id?'readonly':''}></div>
-          <div class="field"><label>${d.id ? 'Nytt lösenord (valfritt)' : 'Initialt lösenord'}</label><input name="pwd" type="${d.id?'text':'password'}" ${d.id?'':'required minlength="4"'} placeholder="${d.id?'Lämna tomt för oförändrat':'Minst 4 tecken'}"></div>
-        </div>
-        <div class="row">
-          <div class="field"><label>Standardbil (valfritt)</label><select name="defaultVehicleId">${vehOpts}</select></div>
+          <div class="field"><label>Standardbil (valfritt)</label><select name="vehicleId">${vehOpts}</select></div>
           <div class="field"><label>Status</label>
             <select name="active">
               <option value="1" ${d.active!==false?'selected':''}>Aktiv</option>
@@ -3374,7 +3383,7 @@ async function driverForm(d, u) {
           </div>
         </div>
         <div class="btn-row">
-          <button type="submit">${d.id ? 'Spara ändringar' : 'Lägg till chaufför'}</button>
+          <button type="submit">${d.id ? 'Spara ändringar' : '📧 Lägg till + skicka inbjudan'}</button>
           <a class="btn secondary" href="#/drivers">Avbryt</a>
         </div>
       </form>
@@ -3386,30 +3395,52 @@ route(/^\/drivers\/new$/, async (_m, u) => {
   mount(`<h2>Ny chaufför</h2>${await driverForm(null, u)}`);
   document.getElementById('drvForm').onsubmit = async e => {
     e.preventDefault();
-    const f = new FormData(e.target);
-    const email = (f.get('email') || '').toLowerCase().trim();
-    if (await db.oneByIndex('users', 'email', email)) { toast('E-posten används redan', 'err'); return; }
-    const passwordHash = await hashPwd(f.get('pwd'));
-    const newUser = await db.add('users', {
-      email, passwordHash, role: 'chauffor',
-      name: (f.get('name') || '').trim(),
-      phone: (f.get('phone') || '').trim(),
-      company: u.company || '',
-      haulerId: u.id,
-      createdAt: Date.now(),
-    });
-    await db.add('drivers', {
-      haulerId: u.id,
-      userId: newUser.id,
-      name: (f.get('name') || '').trim(),
-      email,
-      phone: (f.get('phone') || '').trim(),
-      defaultVehicleId: f.get('defaultVehicleId') ? Number(f.get('defaultVehicleId')) : null,
-      active: f.get('active') === '1',
-      createdAt: Date.now(),
-    });
-    toast('Chaufför tillagd — login skapat');
-    navigate('/drivers');
+    const submitBtn = e.target.querySelector('button[type=submit]');
+    submitBtn.disabled = true;
+    submitBtn.textContent = '⏳ Skapar chaufför + skickar inbjudan...';
+    try {
+      const f = new FormData(e.target);
+      const email = (f.get('email') || '').toLowerCase().trim();
+      const name = (f.get('name') || '').trim();
+      if (!email || !name) throw new Error('Namn och e-post krävs');
+
+      // Kontrollera om driver med samma email finns redan
+      const existing = await sb.from('drivers').select('id').eq('hauler_id', u.id).eq('email', email).maybeSingle();
+      if (existing.data) throw new Error('Chaufför med denna e-post finns redan i din flotta');
+
+      // Skapa driver-rad (utan lösenord — chauffören sätter sitt eget via magic-link)
+      const { data: newDriver, error: createErr } = await sb.from('drivers').insert({
+        hauler_id: u.id,
+        name,
+        email,
+        phone: (f.get('phone') || '').trim() || null,
+        vehicle_id: f.get('vehicleId') || null,
+        active: f.get('active') === '1',
+      }).select().single();
+      if (createErr) throw createErr;
+
+      // Skicka inbjudningsmejl via Edge Function
+      const session = await sb.auth.getSession();
+      const accessToken = session?.data?.session?.access_token;
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/send-driver-invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+        body: JSON.stringify({ driver_id: newDriver.id }),
+      });
+      const respData = await resp.json();
+      if (!resp.ok) {
+        console.error('Inbjudan-fel:', respData);
+        toast(`Chaufför tillagd men mejlet kunde inte skickas: ${respData.error || 'okänt fel'}`, 'warn');
+      } else {
+        toast(`✅ Chaufför tillagd — inbjudan skickad till ${email}`);
+      }
+      navigate('/drivers');
+    } catch (err) {
+      console.error('Lägg till chaufför fel:', err);
+      toast('Kunde inte lägga till: ' + (err.message || err), 'err');
+      submitBtn.disabled = false;
+      submitBtn.textContent = '📧 Lägg till + skicka inbjudan';
+    }
   };
 });
 
@@ -3417,31 +3448,126 @@ route(/^\/drivers\/([\w-]+)\/edit$/, async (m, u) => {
   if (!isHauler(u)) return navigate('/');
   const d = await db.get('drivers', m[1]);
   if (!d || d.haulerId !== u.id) { toast('Hittas inte', 'err'); return navigate('/drivers'); }
-  mount(`<h2>Ändra chaufför — ${esc(d.name)}</h2>${await driverForm(d, u)}`);
+  const status = d.acceptedAt ? `<span class="badge accepted">Registrerad</span>` : d.invitedAt ? `<span class="badge open">Inbjuden ${fmtDate(d.invitedAt)}</span>` : `<span class="muted">Ej inbjuden</span>`;
+  mount(`<h2>Ändra chaufför — ${esc(d.name)} ${status}</h2>${await driverForm(d, u)}
+    ${!d.acceptedAt ? `<div class="card" style="background:#fff7ed;border:1px solid #f97316;margin-top:14px">
+      <h3 style="margin-top:0">📧 Skicka inbjudan igen</h3>
+      <p class="muted" style="font-size:14px">Om chauffören inte fått eller tappat bort inbjudningsmejlet kan du skicka en ny.</p>
+      <button id="resendInviteBtn" class="secondary">📧 Skicka ny inbjudan till ${esc(d.email)}</button>
+    </div>` : ''}`);
   document.getElementById('drvForm').onsubmit = async e => {
     e.preventDefault();
-    const f = new FormData(e.target);
-    const newPwd = f.get('pwd');
-    const updates = {
-      ...d,
-      name: (f.get('name') || '').trim(),
-      phone: (f.get('phone') || '').trim(),
-      defaultVehicleId: f.get('defaultVehicleId') ? Number(f.get('defaultVehicleId')) : null,
-      active: f.get('active') === '1',
-    };
-    await db.put('drivers', updates);
-    if (d.userId) {
-      const userRow = await db.get('users', d.userId);
-      if (userRow) {
-        userRow.name = updates.name;
-        userRow.phone = updates.phone;
-        if (newPwd) userRow.passwordHash = await hashPwd(newPwd);
-        await db.put('users', userRow);
-      }
+    try {
+      const f = new FormData(e.target);
+      const updates = {
+        name: (f.get('name') || '').trim(),
+        phone: (f.get('phone') || '').trim() || null,
+        vehicle_id: f.get('vehicleId') || null,
+        active: f.get('active') === '1',
+      };
+      const { error } = await sb.from('drivers').update(updates).eq('id', d.id);
+      if (error) throw error;
+      toast('Sparad');
+      navigate('/drivers');
+    } catch (err) {
+      toast('Fel: ' + (err.message || err), 'err');
     }
-    toast('Sparad');
-    navigate('/drivers');
   };
+  const resendBtn = document.getElementById('resendInviteBtn');
+  if (resendBtn) resendBtn.onclick = async () => {
+    resendBtn.disabled = true; resendBtn.textContent = '⏳ Skickar...';
+    try {
+      const session = await sb.auth.getSession();
+      const accessToken = session?.data?.session?.access_token;
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/send-driver-invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+        body: JSON.stringify({ driver_id: d.id }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Misslyckades');
+      toast(`✅ Inbjudan skickad till ${d.email}`);
+    } catch (err) {
+      toast('Fel: ' + (err.message || err), 'err');
+    } finally {
+      resendBtn.disabled = false;
+      resendBtn.textContent = `📧 Skicka ny inbjudan till ${d.email}`;
+    }
+  };
+});
+
+// --------- Accept driver-inbjudan via mejl: /accept-driver/{token} ---------
+route(/^\/accept-driver\/([a-f0-9]+)$/, async (m) => {
+  const token = m[1];
+  document.getElementById('app').innerHTML = '<div class="auth-wrap"><div class="card"><div style="text-align:center;padding:40px;color:#6b7280">⏳ Verifierar inbjudan...</div></div></div>';
+  try {
+    const { data: driver, error } = await sb.from('drivers').select('id, name, email, phone, hauler_id, accepted_at').eq('magic_token', token).maybeSingle();
+    if (error || !driver) {
+      document.getElementById('app').innerHTML = `<div class="auth-wrap"><div class="card">
+        <h2>Länken är ogiltig</h2>
+        <p>Inbjudningslänken kunde inte hittas. Be åkeriet skicka en ny.</p>
+        <a class="btn" href="#/">Till startsidan</a>
+      </div></div>`;
+      return;
+    }
+    if (driver.accepted_at) {
+      document.getElementById('app').innerHTML = `<div class="auth-wrap"><div class="card">
+        <h2>Inbjudan redan accepterad</h2>
+        <p>Det verkar som du redan skapat ditt konto via denna länk.</p>
+        <a class="btn" href="#/login">Logga in</a>
+      </div></div>`;
+      return;
+    }
+
+    // Visa signup-formulär med email förfyllt och låst
+    document.getElementById('app').innerHTML = `
+      <div class="auth-wrap">
+        <div class="card">
+          <div style="text-align:center;margin-bottom:16px"><img src="/logo.png" alt="hittalast.se" style="max-width:200px;width:80%;height:auto"></div>
+          <h2 style="margin-top:0">🚛 Välkommen som chaufför!</h2>
+          <p class="muted" style="margin-top:-8px">Hej <b>${esc(driver.name)}</b>! Du har bjudits in som chaufför. Välj ett lösenord nedan så är du klar.</p>
+          <div class="banner ok" style="margin-bottom:14px">✅ Inbjudningslänk verifierad</div>
+          <form id="acceptDriverForm">
+            <div class="field"><label>Namn</label><input name="name" value="${esc(driver.name || '')}" required></div>
+            <div class="field"><label>Telefon</label><input name="phone" value="${esc(driver.phone || '')}"></div>
+            <div class="field"><label>E-post</label><input name="email" type="email" value="${esc(driver.email)}" readonly style="background:#f5f5f5;cursor:not-allowed"></div>
+            <div class="field"><label>Välj lösenord *</label><input name="pwd" type="password" required minlength="6" autocomplete="new-password" placeholder="Minst 6 tecken"></div>
+            <button type="submit" style="width:100%;background:#f97316;color:#fff;font-weight:700;padding:14px;border:none;border-radius:8px;cursor:pointer;font-size:15px">🚛 Skapa konto + börja köra</button>
+          </form>
+        </div>
+      </div>`;
+
+    document.getElementById('acceptDriverForm').onsubmit = async e => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button[type=submit]');
+      btn.disabled = true; btn.textContent = '⏳ Skapar konto...';
+      try {
+        const f = new FormData(e.target);
+        const data = {
+          email: f.get('email'), pwd: f.get('pwd'), role: 'chauffor',
+          name: f.get('name'), phone: f.get('phone'),
+        };
+        await register(data);
+        // Koppla driver-raden till nya användaren
+        if (_sessionUser?.id) {
+          await sb.from('drivers').update({
+            profile_id: _sessionUser.id,
+            accepted_at: new Date().toISOString(),
+          }).eq('id', driver.id);
+        }
+        toast('🎉 Välkommen till hittalast.se!');
+        navigate('/');
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = '🚛 Skapa konto + börja köra';
+        toast(err.message || 'Något gick fel', 'err');
+      }
+    };
+  } catch (err) {
+    console.error('Accept driver-fel:', err);
+    toast('Kunde inte verifiera länken', 'err');
+    navigate('/');
+  }
 });
 
 // --------- Admin: Importera mejl manuellt ---------
