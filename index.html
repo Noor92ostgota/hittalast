@@ -3501,11 +3501,14 @@ route(/^\/accept-driver\/([a-f0-9]+)$/, async (m) => {
   const token = m[1];
   document.getElementById('app').innerHTML = '<div class="auth-wrap"><div class="card"><div style="text-align:center;padding:40px;color:#6b7280">⏳ Verifierar inbjudan...</div></div></div>';
   try {
-    const { data: driver, error } = await sb.from('drivers').select('id, name, email, phone, hauler_id, accepted_at').eq('magic_token', token).maybeSingle();
+    // Använd SECURITY DEFINER-funktion (fungerar för oinloggade)
+    const { data: rows, error } = await sb.rpc('get_driver_by_magic_token', { token });
+    const driver = Array.isArray(rows) ? rows[0] : rows;
     if (error || !driver) {
+      console.error('get_driver_by_magic_token fel:', error);
       document.getElementById('app').innerHTML = `<div class="auth-wrap"><div class="card">
         <h2>Länken är ogiltig</h2>
-        <p>Inbjudningslänken kunde inte hittas. Be åkeriet skicka en ny.</p>
+        <p>Inbjudningslänken kunde inte hittas eller har redan använts. Be åkeriet skicka en ny.</p>
         <a class="btn" href="#/">Till startsidan</a>
       </div></div>`;
       return;
@@ -3548,14 +3551,14 @@ route(/^\/accept-driver\/([a-f0-9]+)$/, async (m) => {
           name: f.get('name'), phone: f.get('phone'),
         };
         await register(data);
-        // Koppla driver-raden till nya användaren
-        if (_sessionUser?.id) {
-          await sb.from('drivers').update({
-            profile_id: _sessionUser.id,
-            accepted_at: new Date().toISOString(),
-          }).eq('id', driver.id);
+        // Koppla driver-raden till nya användaren via SECURITY DEFINER-funktion
+        const { error: linkErr } = await sb.rpc('accept_driver_invitation', { token });
+        if (linkErr) {
+          console.warn('accept_driver_invitation fel:', linkErr);
+          toast('Konto skapat men koppling till åkeriet misslyckades: ' + linkErr.message, 'warn');
+        } else {
+          toast('🎉 Välkommen till hittalast.se!');
         }
-        toast('🎉 Välkommen till hittalast.se!');
         navigate('/');
       } catch (err) {
         btn.disabled = false;
@@ -3565,7 +3568,7 @@ route(/^\/accept-driver\/([a-f0-9]+)$/, async (m) => {
     };
   } catch (err) {
     console.error('Accept driver-fel:', err);
-    toast('Kunde inte verifiera länken', 'err');
+    toast('Kunde inte verifiera länken: ' + (err.message || err), 'err');
     navigate('/');
   }
 });
