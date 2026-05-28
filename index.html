@@ -20,6 +20,8 @@
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   :root {
     --bg:#f7f7f8; --card:#fff; --ink:#1a1d22; --muted:#6b7280; --line:#e5e7eb;
@@ -443,6 +445,191 @@ async function uploadImage(file, bucket = 'booking-images') {
   if (error) { console.error('uploadImage', error); throw error; }
   const { data } = sb.storage.from(bucket).getPublicUrl(path);
   return data.publicUrl;
+}
+
+// --------- PDF-fakturaunderlag ---------
+// Hämta bild som data-URL för PDF-inbäddning
+async function imageUrlToDataUrl(url) {
+  if (!url) return null;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const blob = await resp.blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (err) {
+    console.warn('imageUrlToDataUrl fel:', err);
+    return null;
+  }
+}
+
+// Skapa fakturaunderlag-PDF från en bokning
+async function generateInvoicePDF(b, buyer, hauler) {
+  if (!window.jspdf) throw new Error('jsPDF-biblioteket är inte laddat ännu — vänta några sekunder och försök igen.');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const W = 210, M = 15;
+  let y = M;
+
+  // Header
+  doc.setFontSize(20);
+  doc.setTextColor(249, 115, 22);
+  doc.text('hittalast.se', M, y + 5);
+  doc.setFontSize(10);
+  doc.setTextColor(120, 120, 120);
+  doc.text('Hitta Last Sverige AB', M, y + 11);
+  doc.setFontSize(14);
+  doc.setTextColor(0);
+  doc.text('FAKTURAUNDERLAG', W - M, y + 5, { align: 'right' });
+  doc.setFontSize(9);
+  doc.setTextColor(100);
+  doc.text('Körnings-ID: ' + b.id.slice(0, 8), W - M, y + 11, { align: 'right' });
+  if (b.completedAt) doc.text('Utförd: ' + new Date(b.completedAt).toLocaleDateString('sv-SE'), W - M, y + 16, { align: 'right' });
+  y += 24;
+
+  doc.setDrawColor(220);
+  doc.line(M, y, W - M, y);
+  y += 8;
+
+  // Parter (2 kolumner)
+  const colW = (W - M * 2) / 2 - 4;
+  doc.setFontSize(10);
+  doc.setTextColor(120);
+  doc.text('UPPDRAGSGIVARE', M, y);
+  doc.text('UTFÖRARE', M + colW + 8, y);
+  y += 6;
+  doc.setFontSize(11);
+  doc.setTextColor(0);
+  function ptyBlock(p, x, yStart) {
+    let yy = yStart;
+    if (!p) { doc.text('—', x, yy); return yy + 5; }
+    doc.setFont(undefined, 'bold');
+    doc.text(p.company || p.name || '—', x, yy);
+    doc.setFont(undefined, 'normal');
+    yy += 5;
+    doc.setFontSize(10);
+    if (p.name && p.company) { doc.text(p.name, x, yy); yy += 4; }
+    if (p.org_nr || p.orgNr) { doc.text('Org.nr ' + (p.org_nr || p.orgNr), x, yy); yy += 4; }
+    if (p.address) { doc.text(p.address, x, yy); yy += 4; }
+    if (p.email) { doc.text(p.email, x, yy); yy += 4; }
+    if (p.phone) { doc.text(p.phone, x, yy); yy += 4; }
+    doc.setFontSize(11);
+    return yy;
+  }
+  const yLeft = ptyBlock(buyer, M, y);
+  const yRight = ptyBlock(hauler, M + colW + 8, y);
+  y = Math.max(yLeft, yRight) + 4;
+
+  doc.setDrawColor(220);
+  doc.line(M, y, W - M, y);
+  y += 8;
+
+  // Uppdrag-block
+  doc.setFontSize(10);
+  doc.setTextColor(120);
+  doc.text('UPPDRAG', M, y);
+  y += 6;
+  doc.setFontSize(11);
+  doc.setTextColor(0);
+  function row(label, value) {
+    doc.setFont(undefined, 'normal');
+    doc.text(label, M, y);
+    doc.setFont(undefined, 'bold');
+    doc.text(String(value || '—'), M + 50, y);
+    doc.setFont(undefined, 'normal');
+    y += 5.5;
+  }
+  row('Från:', b.fromLocation + (b.fromPostal ? ' (' + b.fromPostal + ')' : ''));
+  row('Till:', b.toLocation + (b.toPostal ? ' (' + b.toPostal + ')' : ''));
+  if (b.loadDate) row('Lastas:', b.loadDate + (b.loadTime ? ' ' + b.loadTime : ''));
+  if (b.unloadDate) row('Lossas:', b.unloadDate + (b.unloadTime ? ' ' + b.unloadTime : ''));
+  if (b.weight) row('Vikt:', b.weight.toLocaleString('sv-SE') + ' kg');
+  if (b.flm) row('Flakmeter:', b.flm);
+  if (b.pallets) row('Antal pall:', b.pallets);
+  if (b.adr) row('ADR:', 'Ja');
+  if (b.tailLift) row('Bakgavellift:', 'Ja');
+  if (b.openSide) row('Öppningsbar sida:', 'Ja');
+  y += 3;
+
+  // Pris
+  doc.setDrawColor(220);
+  doc.line(M, y, W - M, y);
+  y += 8;
+  doc.setFontSize(10);
+  doc.setTextColor(120);
+  doc.text('PRIS (exkl. moms)', M, y);
+  y += 7;
+  doc.setFontSize(20);
+  doc.setTextColor(249, 115, 22);
+  doc.text((b.price ? b.price.toLocaleString('sv-SE') + ' kr' : '—'), M, y);
+  y += 10;
+
+  // Beskrivning
+  if (b.description) {
+    doc.setFontSize(10);
+    doc.setTextColor(120);
+    doc.text('BESKRIVNING', M, y);
+    y += 5;
+    doc.setFontSize(10);
+    doc.setTextColor(0);
+    const lines = doc.splitTextToSize(b.description, W - M * 2);
+    doc.text(lines, M, y);
+    y += lines.length * 4.5 + 4;
+  }
+
+  // Bilder
+  async function addImage(label, url) {
+    if (!url) return;
+    const dataUrl = await imageUrlToDataUrl(url);
+    if (!dataUrl) return;
+    if (y > 230) { doc.addPage(); y = M; }
+    doc.setFontSize(10);
+    doc.setTextColor(120);
+    doc.text(label, M, y);
+    y += 5;
+    try {
+      const imgW = 80, imgH = 60;
+      doc.addImage(dataUrl, 'JPEG', M, y, imgW, imgH);
+      y += imgH + 8;
+    } catch (e) { console.warn('addImage fel:', e); }
+  }
+  await addImage('BILD PÅ BOKNING', b.bookingImageUrl || b.bookingImage);
+  await addImage('FRAKTSEDEL', b.proofImageUrl || b.proofImage);
+
+  // Footer på alla sidor
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(150);
+    doc.text('Genererat av hittalast.se · Hitta Last Sverige AB · ' + new Date().toLocaleDateString('sv-SE'), W / 2, 290, { align: 'center' });
+    doc.text(`Sida ${i} / ${pageCount}`, W - M, 290, { align: 'right' });
+  }
+  return doc;
+}
+
+// Filnamn för PDF/fil
+function safeFileName(s) {
+  return (s || 'fakturaunderlag').replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, '-').slice(0, 60);
+}
+
+// Skapa ZIP med flera PDF:er
+async function generateInvoicesZip(bookings, buyer) {
+  if (!window.JSZip) throw new Error('JSZip-biblioteket är inte laddat ännu.');
+  const zip = new JSZip();
+  for (const b of bookings) {
+    let hauler = b.haulerId ? await db.get('users', b.haulerId) : null;
+    if (!hauler) hauler = { name: '(saknas)' };
+    const doc = await generateInvoicePDF(b, buyer, hauler);
+    const blob = doc.output('blob');
+    const fname = safeFileName(`${b.completedAt ? b.completedAt.slice(0,10) : 'okand'}_${b.fromLocation}_${b.toLocation}_${b.id.slice(0,8)}`) + '.pdf';
+    zip.file(fname, blob);
+  }
+  return await zip.generateAsync({ type: 'blob' });
 }
 
 // --------- Auth (Supabase) ---------
@@ -1145,6 +1332,7 @@ function roleNav(u) {
   if (u.role === 'chauffor') return base;
   let nav = base + `<a href="#/available"><span class="label">Tillgängliga körningar</span> 📋</a>` + `<a href="#/new"><span class="label">Ny körning</span> ➕</a>` + `<a href="#/free-vehicles"><span class="label">Lediga bilar</span> 🚚</a>`;
   if (isHauler(u)) nav += `<a href="#/vehicles"><span class="label">Mina bilar</span> 🚛</a>` + `<a href="#/drivers"><span class="label">Chaufförer</span> 👷</a>`;
+  nav += `<a href="#/invoices"><span class="label">Fakturaunderlag</span> 📄</a>`;
   nav += `<a href="#/stats"><span class="label">Statistik</span> 📊</a>`;
   if (u.role === 'akare') nav += `<a href="#/subscription"><span class="label">Prenumeration</span> 💳</a>`;
   if (u.role === 'admin') nav += `<a href="#/users"><span class="label">Användare</span> 👥</a><a href="#/settlement"><span class="label">Prenumerationer</span> 💼</a><a href="#/import-email"><span class="label">Importera mejl</span> ✉️</a>`;
@@ -1509,6 +1697,184 @@ route(/^\/launch\/([a-f0-9]+)$/, async (m) => {
     toast('Kunde inte verifiera länken: ' + (err.message || err), 'err');
     navigate('/');
   }
+});
+
+// --------- Fakturaunderlag (PDF + ZIP) ---------
+route(/^\/invoices$/, async (_m, u) => {
+  if (!u) return navigate('/');
+  // Hämta alla completed bokningar där användaren är köpare (eller åkare)
+  const all = await db.byIndex('bookings', 'buyerId', u.id);
+  const accepted = await db.byIndex('bookings', 'haulerId', u.id);
+  const map = new Map();
+  for (const b of all) if (b.status === 'completed') map.set(b.id, { ...b, _role: 'buyer' });
+  for (const b of accepted) if (b.status === 'completed') {
+    if (!map.has(b.id)) map.set(b.id, { ...b, _role: 'hauler' });
+  }
+  const bookings = [...map.values()].sort((a, b) => new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime());
+
+  mount(`
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+      <a href="#/" class="btn secondary">← Tillbaka</a>
+      <h2 style="margin:0">📄 Fakturaunderlag</h2>
+      <span class="muted">${bookings.length} utförda körning${bookings.length === 1 ? '' : 'ar'}</span>
+    </div>
+    <div class="banner info">Här finns alla utförda körningar med PDF-fakturaunderlag som innehåller bokningsdetaljer, parter och fraktsedel. Använd för bokföring eller skicka till din kund.</div>
+    ${bookings.length === 0 ? `<div class="card"><div class="empty">Inga utförda körningar än. När en bokning markeras som utförd visas den här.</div></div>` : `
+      <div class="card">
+        <div class="btn-row" style="margin-bottom:12px">
+          <button id="zipAllBtn" style="background:#f97316;color:#fff;border:none;padding:12px 20px;border-radius:8px;font-weight:700;cursor:pointer">📦 Ladda ned alla som ZIP (${bookings.length} PDF)</button>
+          <a class="btn secondary" href="#/integrations">⚡ Integrationer (Fortnox/Visma)</a>
+        </div>
+        <table class="compact">
+          <thead><tr><th>Datum</th><th>Från → Till</th><th>Pris</th><th>Motpart</th><th>Roll</th><th></th></tr></thead>
+          <tbody>
+          ${bookings.map(b => `<tr data-id="${b.id}">
+            <td class="nowrap">${b.completedAt ? new Date(b.completedAt).toLocaleDateString('sv-SE') : '—'}</td>
+            <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
+            <td class="nowrap">${b.price ? fmtMoney(b.price) : '—'}</td>
+            <td>${esc(b._role === 'buyer' ? '(åkare)' : '(uppdragsgivare)')}</td>
+            <td><span class="badge ${b._role === 'buyer' ? 'open' : 'accepted'}">${b._role === 'buyer' ? 'Köpt' : 'Utfört'}</span></td>
+            <td class="nowrap"><button class="secondary pdf-btn" data-bid="${b.id}">📄 PDF</button></td>
+          </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    `}
+  `);
+
+  // Enskild PDF-knapp
+  document.querySelectorAll('.pdf-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.dataset.bid;
+      btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const b = bookings.find(x => x.id === id);
+        const buyer = await db.get('users', b.buyerId);
+        const hauler = b.haulerId ? await db.get('users', b.haulerId) : null;
+        const doc = await generateInvoicePDF(b, buyer, hauler);
+        doc.save(safeFileName(`fakturaunderlag-${b.fromLocation}-${b.toLocation}-${b.id.slice(0,8)}`) + '.pdf');
+      } catch (err) {
+        console.error('PDF-fel:', err);
+        toast('PDF-fel: ' + (err.message || err), 'err');
+      } finally {
+        btn.disabled = false; btn.textContent = '📄 PDF';
+      }
+    };
+  });
+
+  // ZIP-nedladdningsknapp
+  const zipBtn = document.getElementById('zipAllBtn');
+  if (zipBtn) zipBtn.onclick = async () => {
+    zipBtn.disabled = true;
+    zipBtn.textContent = `⏳ Bygger ZIP (1 av ${bookings.length})...`;
+    try {
+      const buyer = u; // den aktuella användaren är köparen i sin egen lista
+      // Bygg ZIP med progress-uppdatering
+      const zip = new JSZip();
+      for (let i = 0; i < bookings.length; i++) {
+        const b = bookings[i];
+        zipBtn.textContent = `⏳ Bygger ZIP (${i + 1} av ${bookings.length})...`;
+        const bk = await db.get('users', b.buyerId);
+        const hl = b.haulerId ? await db.get('users', b.haulerId) : null;
+        const doc = await generateInvoicePDF(b, bk, hl);
+        const blob = doc.output('blob');
+        const fname = safeFileName(`${b.completedAt ? b.completedAt.slice(0,10) : 'okand'}_${b.fromLocation}_${b.toLocation}_${b.id.slice(0,8)}`) + '.pdf';
+        zip.file(fname, blob);
+      }
+      zipBtn.textContent = '⏳ Komprimerar...';
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `fakturaunderlag-${new Date().toISOString().slice(0,10)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast(`✅ ZIP med ${bookings.length} PDF nedladdat`);
+    } catch (err) {
+      console.error('ZIP-fel:', err);
+      toast('ZIP-fel: ' + (err.message || err), 'err');
+    } finally {
+      zipBtn.disabled = false;
+      zipBtn.textContent = `📦 Ladda ned alla som ZIP (${bookings.length} PDF)`;
+    }
+  };
+});
+
+// --------- Integrationer (Fortnox/Visma) — UI + intresseanmälan ---------
+route(/^\/integrations$/, async (_m, u) => {
+  if (!u) return navigate('/');
+  mount(`
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <a href="#/invoices" class="btn secondary">← Tillbaka till fakturaunderlag</a>
+      <h2 style="margin:0">⚡ Integrationer</h2>
+    </div>
+
+    <div class="card" style="background:linear-gradient(135deg,#fff7ed,#ffedd5);border:1px solid #f97316;margin-bottom:16px">
+      <h3 style="margin-top:0;color:#9a3412">🚧 Under utveckling</h3>
+      <p>Vi bygger integrationer mot de stora ekonomi- och fakturasystemen. När integrationen är klar kan du automatiskt skapa fakturor i ditt system så fort en körning är utförd.</p>
+    </div>
+
+    <div class="row">
+      <div class="card">
+        <div style="text-align:center;margin-bottom:14px">
+          <div style="font-size:36px">📊</div>
+          <h3 style="margin:8px 0 0">Fortnox</h3>
+          <span class="badge open">PLANERAD</span>
+        </div>
+        <ul style="font-size:14px;line-height:1.7;padding-left:18px">
+          <li>Automatisk faktura vid utförd körning</li>
+          <li>Bokföringsverifikat skapas direkt</li>
+          <li>Fraktsedel som bilaga</li>
+          <li>OAuth-koppling (säkert utan att dela lösenord)</li>
+        </ul>
+        <button class="btn-primary integration-interest" data-name="Fortnox" style="display:block;width:100%;margin-top:14px">🔔 Anmäl intresse</button>
+      </div>
+
+      <div class="card">
+        <div style="text-align:center;margin-bottom:14px">
+          <div style="font-size:36px">💼</div>
+          <h3 style="margin:8px 0 0">Visma eEkonomi</h3>
+          <span class="badge open">PLANERAD</span>
+        </div>
+        <ul style="font-size:14px;line-height:1.7;padding-left:18px">
+          <li>Skapa fakturaunderlag direkt</li>
+          <li>Synka kundregister</li>
+          <li>Fraktsedel följer med som bilaga</li>
+          <li>OAuth-koppling till ditt Visma-konto</li>
+        </ul>
+        <button class="btn-primary integration-interest" data-name="Visma" style="display:block;width:100%;margin-top:14px">🔔 Anmäl intresse</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3 style="margin-top:0">💡 Funkar idag</h3>
+      <p>Tills integrationen är klar kan du:</p>
+      <ul style="line-height:1.7">
+        <li><b>Ladda ned alla fraktsedlar som ZIP</b> en gång i månaden → ladda upp i Fortnox/Visma manuellt</li>
+        <li><b>PDF per körning</b> direkt på utförd-sidan → bifoga som bilaga i din faktura</li>
+        <li><b>Mejla bilden till dig själv</b> → arkivera i ditt egna system</li>
+      </ul>
+      <div class="btn-row" style="margin-top:14px">
+        <a class="btn" href="#/invoices">📦 Till fakturaunderlag</a>
+      </div>
+    </div>
+
+    <div id="interestResult" style="margin-top:16px"></div>
+  `);
+
+  document.querySelectorAll('.integration-interest').forEach(btn => {
+    btn.onclick = async () => {
+      const name = btn.dataset.name;
+      const result = document.getElementById('interestResult');
+      result.innerHTML = `<div class="banner ok">✅ Tack! Vi noterat att <b>${esc(u.name || u.email)}</b> är intresserad av <b>${esc(name)}</b>-integrationen. Vi hör av oss när den är klar.</div>`;
+      // Spara intresse i notifications-tabellen (enkel logg utan ny tabell)
+      try {
+        await notify(u.id, { type: 'integration_interest', message: `Intresseanmälan: ${name}-integration` });
+      } catch {}
+    };
+  });
 });
 
 // --------- Dashboard-entry (skickar till rätt roll-dashboard, eller publik vy) ---------
@@ -4399,6 +4765,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         </dl>
         ${bookingImgUrl ? `<h3 style="margin-top:12px">Bild på bokning</h3><img src="${bookingImgUrl}" class="thumb">` : ''}
         ${proofImgUrl ? `<h3 style="margin-top:12px">Fraktsedel</h3><img src="${proofImgUrl}" class="thumb">` : ''}
+        ${b.status === 'completed' && (isBuyer || isAssignedHauler || isAdmin) ? `<div class="btn-row" style="margin-top:14px"><button id="invoicePdfBtn" class="secondary">📄 Hämta fakturaunderlag (PDF)</button></div>` : ''}
       </div>
       <div class="card">
         <h3>Parter</h3>
@@ -4711,6 +5078,24 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
   }
 
   if (!isDriver && !ctx.isPublic) await renderChat(b, buyer, hauler, me, ctx);
+
+  // PDF-fakturaunderlag-knapp
+  if (document.getElementById('invoicePdfBtn')) {
+    document.getElementById('invoicePdfBtn').onclick = async () => {
+      const btn = document.getElementById('invoicePdfBtn');
+      btn.disabled = true; btn.textContent = '⏳ Skapar PDF...';
+      try {
+        const doc = await generateInvoicePDF(b, buyer, hauler);
+        doc.save(safeFileName(`fakturaunderlag-${b.fromLocation}-${b.toLocation}-${b.id.slice(0,8)}`) + '.pdf');
+      } catch (err) {
+        console.error('PDF-fel:', err);
+        toast('Kunde inte skapa PDF: ' + (err.message || err), 'err');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '📄 Hämta fakturaunderlag (PDF)';
+      }
+    };
+  }
 }
 
 // --------- Chatt ---------
