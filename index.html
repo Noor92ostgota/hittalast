@@ -502,21 +502,48 @@ async function generateInvoicePDF(b, buyer, hauler) {
   const W = 210, M = 15;
   let y = M;
 
-  // Header
-  doc.setFontSize(20);
-  doc.setTextColor(249, 115, 22);
-  doc.text('hittalast.se', M, y + 5);
-  doc.setFontSize(10);
-  doc.setTextColor(120, 120, 120);
-  doc.text('Hitta Last Sverige AB', M, y + 11);
-  doc.setFontSize(14);
+  // Ladda logotypen för headern
+  let logoDataUrl = null;
+  try {
+    const logoUrl = (window.location.origin || 'https://hittalast.se') + '/logo.png';
+    const resp = await fetch(logoUrl);
+    if (resp.ok) {
+      const blob = await resp.blob();
+      logoDataUrl = await blobToDataUrl(blob);
+    }
+  } catch (e) { console.warn('Kunde inte ladda logo:', e); }
+
+  // HEADER med logga + titel
+  if (logoDataUrl) {
+    try {
+      const dims = await loadImageDimensions(logoDataUrl);
+      const logoH = 18;
+      const logoW = dims && dims.h > 0 ? logoH * (dims.w / dims.h) : 28;
+      const fmt = logoDataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+      doc.addImage(logoDataUrl, fmt, M, y, logoW, logoH);
+    } catch (e) { console.warn('Logo addImage fel:', e); }
+  } else {
+    // Fallback: textbaserad logga
+    doc.setFontSize(20);
+    doc.setTextColor(249, 115, 22);
+    doc.text('hittalast.se', M, y + 8);
+  }
+
+  // Höger sida: titel
+  doc.setFontSize(16);
   doc.setTextColor(0);
   doc.text('FAKTURAUNDERLAG', W - M, y + 5, { align: 'right' });
   doc.setFontSize(9);
   doc.setTextColor(100);
   doc.text('Körnings-ID: ' + b.id.slice(0, 8), W - M, y + 11, { align: 'right' });
   if (b.completedAt) doc.text('Utförd: ' + new Date(b.completedAt).toLocaleDateString('sv-SE'), W - M, y + 16, { align: 'right' });
-  y += 24;
+  y += 22;
+
+  // "Förmedlat via" — tydligt så kunderna inte tror hittalast.se fakturerar
+  doc.setFontSize(9);
+  doc.setTextColor(120);
+  doc.text('Förmedlat via hittalast.se · Fakturering sker direkt mellan parterna nedan', M, y);
+  y += 6;
 
   doc.setDrawColor(220);
   doc.line(M, y, W - M, y);
@@ -659,14 +686,18 @@ async function generateInvoicePDF(b, buyer, hauler) {
   await addImage('BILD PÅ BOKNING', b.bookingImageUrl || b.bookingImage);
   await addImage('FRAKTSEDEL', b.proofImageUrl || b.proofImage);
 
-  // Footer på alla sidor
+  // Footer på alla sidor — tydligt att hittalast.se BARA är en plattform
   const pageCount = doc.internal.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
     doc.setFontSize(8);
-    doc.setTextColor(150);
-    doc.text('Genererat av hittalast.se · Hitta Last Sverige AB · ' + new Date().toLocaleDateString('sv-SE'), W / 2, 290, { align: 'center' });
-    doc.text(`Sida ${i} / ${pageCount}`, W - M, 290, { align: 'right' });
+    doc.setTextColor(120);
+    // Disclaimer på rad 1
+    doc.text('Detta är ett fakturaunderlag som förmedlats via hittalast.se. Fakturering sker direkt mellan uppdragsgivare och utförare.', W / 2, 283, { align: 'center' });
+    // Plattformens info på rad 2
+    doc.setTextColor(160);
+    doc.text('hittalast.se är en förmedlande plattform — inte avtalspart. · Hitta Last Sverige AB · Genererat ' + new Date().toLocaleDateString('sv-SE'), W / 2, 288, { align: 'center' });
+    doc.text(`Sida ${i} / ${pageCount}`, W - M, 293, { align: 'right' });
   }
   return doc;
 }
