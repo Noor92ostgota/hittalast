@@ -1710,25 +1710,74 @@ route(/^\/invoices$/, async (_m, u) => {
   for (const b of accepted) if (b.status === 'completed') {
     if (!map.has(b.id)) map.set(b.id, { ...b, _role: 'hauler' });
   }
-  const bookings = [...map.values()].sort((a, b) => new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime());
+  const allBookings = [...map.values()].sort((a, b) => new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime());
+
+  // Datumfilter (från sessionStorage)
+  const fromFilter = sessionStorage.getItem('invoiceFrom') || '';
+  const toFilter = sessionStorage.getItem('invoiceTo') || '';
+  const filteredBookings = allBookings.filter(b => {
+    const d = b.completedAt ? b.completedAt.slice(0, 10) : '';
+    if (fromFilter && d < fromFilter) return false;
+    if (toFilter && d > toFilter) return false;
+    return true;
+  });
+
+  // Förbered datum för snabb-knappar
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+  const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().slice(0, 10);
+  const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString().slice(0, 10);
+  const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0).toISOString().slice(0, 10);
+  const yearStart = new Date(today.getFullYear(), 0, 1).toISOString().slice(0, 10);
+
+  // Räkna totalt pris i filterperioden
+  const totalPrice = filteredBookings.reduce((s, b) => s + (b.price || 0), 0);
 
   mount(`
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
       <a href="#/" class="btn secondary">← Tillbaka</a>
       <h2 style="margin:0">📄 Fakturaunderlag</h2>
-      <span class="muted">${bookings.length} utförda körning${bookings.length === 1 ? '' : 'ar'}</span>
+      <span class="muted">${filteredBookings.length} av ${allBookings.length} utförda körning${allBookings.length === 1 ? '' : 'ar'}</span>
     </div>
     <div class="banner info">Här finns alla utförda körningar med PDF-fakturaunderlag som innehåller bokningsdetaljer, parter och fraktsedel. Använd för bokföring eller skicka till din kund.</div>
-    ${bookings.length === 0 ? `<div class="card"><div class="empty">Inga utförda körningar än. När en bokning markeras som utförd visas den här.</div></div>` : `
+
+    ${allBookings.length === 0 ? `<div class="card"><div class="empty">Inga utförda körningar än. När en bokning markeras som utförd visas den här.</div></div>` : `
+      <div class="card" style="margin-bottom:14px">
+        <h3 style="margin-top:0">📅 Period</h3>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:end;margin-bottom:12px">
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Från</label>
+            <input type="date" id="invFrom" value="${esc(fromFilter)}" style="padding:8px;border:1px solid var(--line);border-radius:6px">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Till</label>
+            <input type="date" id="invTo" value="${esc(toFilter)}" style="padding:8px;border:1px solid var(--line);border-radius:6px">
+          </div>
+          <button class="secondary" id="invApply">🔍 Filtrera</button>
+          ${fromFilter || toFilter ? `<button class="secondary" id="invClear">✕ Rensa filter</button>` : ''}
+        </div>
+        <div class="btn-row" style="margin-bottom:0">
+          <button class="secondary" data-quick="month">Denna månad</button>
+          <button class="secondary" data-quick="lastmonth">Förra månaden</button>
+          <button class="secondary" data-quick="year">I år</button>
+          <button class="secondary" data-quick="all">Alla</button>
+        </div>
+        ${filteredBookings.length > 0 ? `<div class="muted" style="margin-top:14px;font-size:13px">
+          <b>${filteredBookings.length}</b> körningar · Total: <b>${fmtMoney(totalPrice)}</b> (exkl. moms)
+        </div>` : ''}
+      </div>
+
       <div class="card">
         <div class="btn-row" style="margin-bottom:12px">
-          <button id="zipAllBtn" style="background:#f97316;color:#fff;border:none;padding:12px 20px;border-radius:8px;font-weight:700;cursor:pointer">📦 Ladda ned alla som ZIP (${bookings.length} PDF)</button>
+          <button id="zipAllBtn" style="background:#f97316;color:#fff;border:none;padding:12px 20px;border-radius:8px;font-weight:700;cursor:pointer" ${filteredBookings.length === 0 ? 'disabled' : ''}>📦 Ladda ned alla som ZIP (${filteredBookings.length} PDF)</button>
           <a class="btn secondary" href="#/integrations">⚡ Integrationer (Fortnox/Visma)</a>
         </div>
+        ${filteredBookings.length === 0 ? `<div class="empty">Inga körningar matchar valt datumintervall.</div>` : `
         <table class="compact">
           <thead><tr><th>Datum</th><th>Från → Till</th><th>Pris</th><th>Motpart</th><th>Roll</th><th></th></tr></thead>
           <tbody>
-          ${bookings.map(b => `<tr data-id="${b.id}">
+          ${filteredBookings.map(b => `<tr data-id="${b.id}">
             <td class="nowrap">${b.completedAt ? new Date(b.completedAt).toLocaleDateString('sv-SE') : '—'}</td>
             <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
             <td class="nowrap">${b.price ? fmtMoney(b.price) : '—'}</td>
@@ -1737,10 +1786,33 @@ route(/^\/invoices$/, async (_m, u) => {
             <td class="nowrap"><button class="secondary pdf-btn" data-bid="${b.id}">📄 PDF</button></td>
           </tr>`).join('')}
           </tbody>
-        </table>
+        </table>`}
       </div>
     `}
   `);
+
+  // Datumfilter-handlers
+  const applyFilter = (from, to) => {
+    if (from) sessionStorage.setItem('invoiceFrom', from); else sessionStorage.removeItem('invoiceFrom');
+    if (to) sessionStorage.setItem('invoiceTo', to); else sessionStorage.removeItem('invoiceTo');
+    navigate('/invoices');
+  };
+  const applyBtn = document.getElementById('invApply');
+  if (applyBtn) applyBtn.onclick = () => {
+    applyFilter(document.getElementById('invFrom').value, document.getElementById('invTo').value);
+  };
+  const clearBtn = document.getElementById('invClear');
+  if (clearBtn) clearBtn.onclick = () => applyFilter('', '');
+
+  document.querySelectorAll('button[data-quick]').forEach(btn => {
+    btn.onclick = () => {
+      const q = btn.dataset.quick;
+      if (q === 'month') applyFilter(monthStart, monthEnd);
+      else if (q === 'lastmonth') applyFilter(lastMonthStart, lastMonthEnd);
+      else if (q === 'year') applyFilter(yearStart, todayStr);
+      else if (q === 'all') applyFilter('', '');
+    };
+  });
 
   // Enskild PDF-knapp
   document.querySelectorAll('.pdf-btn').forEach(btn => {
@@ -1748,7 +1820,7 @@ route(/^\/invoices$/, async (_m, u) => {
       const id = btn.dataset.bid;
       btn.disabled = true; btn.textContent = '⏳';
       try {
-        const b = bookings.find(x => x.id === id);
+        const b = filteredBookings.find(x => x.id === id);
         const buyer = await db.get('users', b.buyerId);
         const hauler = b.haulerId ? await db.get('users', b.haulerId) : null;
         const doc = await generateInvoicePDF(b, buyer, hauler);
@@ -1764,16 +1836,14 @@ route(/^\/invoices$/, async (_m, u) => {
 
   // ZIP-nedladdningsknapp
   const zipBtn = document.getElementById('zipAllBtn');
-  if (zipBtn) zipBtn.onclick = async () => {
+  if (zipBtn && filteredBookings.length > 0) zipBtn.onclick = async () => {
     zipBtn.disabled = true;
-    zipBtn.textContent = `⏳ Bygger ZIP (1 av ${bookings.length})...`;
+    zipBtn.textContent = `⏳ Bygger ZIP (1 av ${filteredBookings.length})...`;
     try {
-      const buyer = u; // den aktuella användaren är köparen i sin egen lista
-      // Bygg ZIP med progress-uppdatering
       const zip = new JSZip();
-      for (let i = 0; i < bookings.length; i++) {
-        const b = bookings[i];
-        zipBtn.textContent = `⏳ Bygger ZIP (${i + 1} av ${bookings.length})...`;
+      for (let i = 0; i < filteredBookings.length; i++) {
+        const b = filteredBookings[i];
+        zipBtn.textContent = `⏳ Bygger ZIP (${i + 1} av ${filteredBookings.length})...`;
         const bk = await db.get('users', b.buyerId);
         const hl = b.haulerId ? await db.get('users', b.haulerId) : null;
         const doc = await generateInvoicePDF(b, bk, hl);
@@ -1786,18 +1856,21 @@ route(/^\/invoices$/, async (_m, u) => {
       const url = URL.createObjectURL(zipBlob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `fakturaunderlag-${new Date().toISOString().slice(0,10)}.zip`;
+      // Filnamn baserat på period
+      const fromLabel = fromFilter || (filteredBookings[filteredBookings.length - 1]?.completedAt || '').slice(0, 10) || 'start';
+      const toLabel = toFilter || (filteredBookings[0]?.completedAt || todayStr).slice(0, 10);
+      a.download = `fakturaunderlag_${fromLabel}_till_${toLabel}.zip`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      toast(`✅ ZIP med ${bookings.length} PDF nedladdat`);
+      toast(`✅ ZIP med ${filteredBookings.length} PDF nedladdat`);
     } catch (err) {
       console.error('ZIP-fel:', err);
       toast('ZIP-fel: ' + (err.message || err), 'err');
     } finally {
       zipBtn.disabled = false;
-      zipBtn.textContent = `📦 Ladda ned alla som ZIP (${bookings.length} PDF)`;
+      zipBtn.textContent = `📦 Ladda ned alla som ZIP (${filteredBookings.length} PDF)`;
     }
   };
 });
