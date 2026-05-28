@@ -603,6 +603,8 @@ async function generateInvoicePDF(b, buyer, hauler) {
   row('Till:', b.toLocation + (b.toPostal ? ' (' + b.toPostal + ')' : ''));
   if (b.loadDate) row('Lastas:', b.loadDate + (b.loadTime ? ' ' + b.loadTime : ''));
   if (b.unloadDate) row('Lossas:', b.unloadDate + (b.unloadTime ? ' ' + b.unloadTime : ''));
+  if (b.loadedAt) row('Lastades:', new Date(b.loadedAt).toLocaleString('sv-SE'));
+  if (b.unloadedAt) row('Lossades:', new Date(b.unloadedAt).toLocaleString('sv-SE'));
   if (b.weight) row('Vikt:', b.weight.toLocaleString('sv-SE') + ' kg');
   if (b.flm) row('Flakmeter:', b.flm);
   if (b.pallets) row('Antal pall:', b.pallets);
@@ -4784,21 +4786,39 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         <button id="placeBidBtn" class="ok">💰 Lägg bud</button>`;
     }
   }
-  if (isAssignedHauler && b.status === 'accepted') {
-    actions = `
-      <div class="field" style="margin-top:12px">
-        <label>Ladda upp bild på fraktsedel</label>
-        <input type="file" id="proofFile" accept="image/*">
-      </div>
-      <button id="completeBtn" class="ok">✓ Markera som utförd</button>`;
-  }
-  if (isDriver && b.status === 'accepted') {
-    actions = `
-      <div class="field" style="margin-top:12px">
-        <label>Ladda upp bild på fraktsedel</label>
-        <input type="file" id="proofFile" accept="image/*">
-      </div>
-      <button id="completeBtn" class="ok">✓ Markera som utförd</button>`;
+  // Lastad/Lossad/Utförd-flöde för chaufför ELLER tilldelad åkare
+  if ((isAssignedHauler || isDriver) && b.status === 'accepted') {
+    const loaded = !!b.loadedAt;
+    const unloaded = !!b.unloadedAt;
+    let stepHtml = '';
+    if (!loaded) {
+      stepHtml = `
+        <div class="banner info" style="margin-bottom:12px">
+          📦 <b>Steg 1 av 3:</b> Lastning hos avsändaren
+        </div>
+        <button id="markLoadedBtn" class="ok" style="font-size:16px;padding:14px 24px">📍 Markera som LASTAD</button>
+        <p class="muted" style="font-size:12px;margin-top:8px">Tryck när lasten är ombord. Både uppdragsgivaren och åkeriet aviseras.</p>`;
+    } else if (!unloaded) {
+      stepHtml = `
+        <div class="banner ok" style="margin-bottom:8px">✅ Lastat ${fmtDate(b.loadedAt)}</div>
+        <div class="banner info" style="margin-bottom:12px">
+          🏁 <b>Steg 2 av 3:</b> Leverans till mottagaren
+        </div>
+        <button id="markUnloadedBtn" class="ok" style="font-size:16px;padding:14px 24px">🏁 Markera som LOSSAD</button>
+        <p class="muted" style="font-size:12px;margin-top:8px">Tryck när godset är lossat. Aviserar uppdragsgivare + åkeri.</p>`;
+    } else {
+      stepHtml = `
+        <div class="banner ok" style="margin-bottom:8px">✅ Lastat ${fmtDate(b.loadedAt)} · Lossat ${fmtDate(b.unloadedAt)}</div>
+        <div class="banner info" style="margin-bottom:12px">
+          📄 <b>Steg 3 av 3:</b> Ladda upp fraktsedel & slutför
+        </div>
+        <div class="field" style="margin-top:12px">
+          <label>Bild på fraktsedel (kvitto från mottagaren)</label>
+          <input type="file" id="proofFile" accept="image/*" capture="environment">
+        </div>
+        <button id="completeBtn" class="ok" style="font-size:16px;padding:14px 24px">✓ Slutför uppdrag</button>`;
+    }
+    actions = stepHtml;
   }
   if (isBuyer && b.status === 'open') {
     actions += ` <button id="cancelBtn" class="danger">Ta bort körning</button>`;
@@ -4926,6 +4946,8 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
           ${b.description ? `<dt>Beskrivning</dt><dd>${esc(b.description)}</dd>` : ''}
           <dt>Skapad</dt><dd>${fmtDate(b.createdAt)}</dd>
           ${b.acceptedAt ? `<dt>Accepterad</dt><dd>${fmtDate(b.acceptedAt)}</dd>` : ''}
+          ${b.loadedAt ? `<dt>📍 Lastad</dt><dd><b style="color:#147a3d">${fmtDate(b.loadedAt)}</b></dd>` : ''}
+          ${b.unloadedAt ? `<dt>🏁 Lossad</dt><dd><b style="color:#147a3d">${fmtDate(b.unloadedAt)}</b></dd>` : ''}
           ${b.completedAt ? `<dt>Utförd</dt><dd>${fmtDate(b.completedAt)}</dd>` : ''}
         </dl>
         ${bookingImgUrl ? `<h3 style="margin-top:12px">Bild på bokning</h3><img src="${bookingImgUrl}" class="thumb">` : ''}
@@ -5185,6 +5207,53 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       navigate('/booking/' + b.id);
     };
   });
+  // LASTAD-knapp
+  if (document.getElementById('markLoadedBtn')) {
+    document.getElementById('markLoadedBtn').onclick = async () => {
+      const btn = document.getElementById('markLoadedBtn');
+      btn.disabled = true; btn.textContent = '⏳ Sparar...';
+      try {
+        const fresh = await db.get('bookings', b.id);
+        fresh.loadedAt = new Date().toISOString();
+        delete fresh.proofImage; delete fresh.bookingImage;
+        await db.put('bookings', fresh);
+        const route = `${fresh.fromLocation} → ${fresh.toLocation}`;
+        // Avisera båda parter
+        if (fresh.buyerId) await notify(fresh.buyerId, { type:'loaded', bookingId: fresh.id, message: `📍 LASTAT: ${me.name} har lastat på ${route}.` });
+        if (fresh.haulerId && fresh.haulerId !== me.id) await notify(fresh.haulerId, { type:'loaded', bookingId: fresh.id, message: `📍 LASTAT: ${me.name} har lastat på ${route}.` });
+        toast('📍 Markerat som lastat — båda parter aviserade');
+        navigate('/booking/' + fresh.id);
+      } catch (err) {
+        console.error('Lastad-fel:', err);
+        toast('Kunde inte markera: ' + (err.message || err), 'err');
+        btn.disabled = false; btn.textContent = '📍 Markera som LASTAD';
+      }
+    };
+  }
+
+  // LOSSAD-knapp
+  if (document.getElementById('markUnloadedBtn')) {
+    document.getElementById('markUnloadedBtn').onclick = async () => {
+      const btn = document.getElementById('markUnloadedBtn');
+      btn.disabled = true; btn.textContent = '⏳ Sparar...';
+      try {
+        const fresh = await db.get('bookings', b.id);
+        fresh.unloadedAt = new Date().toISOString();
+        delete fresh.proofImage; delete fresh.bookingImage;
+        await db.put('bookings', fresh);
+        const route = `${fresh.fromLocation} → ${fresh.toLocation}`;
+        if (fresh.buyerId) await notify(fresh.buyerId, { type:'unloaded', bookingId: fresh.id, message: `🏁 LOSSAT: ${me.name} har levererat på ${route}.` });
+        if (fresh.haulerId && fresh.haulerId !== me.id) await notify(fresh.haulerId, { type:'unloaded', bookingId: fresh.id, message: `🏁 LOSSAT: ${me.name} har levererat på ${route}.` });
+        toast('🏁 Markerat som lossat — båda parter aviserade');
+        navigate('/booking/' + fresh.id);
+      } catch (err) {
+        console.error('Lossad-fel:', err);
+        toast('Kunde inte markera: ' + (err.message || err), 'err');
+        btn.disabled = false; btn.textContent = '🏁 Markera som LOSSAD';
+      }
+    };
+  }
+
   if (document.getElementById('completeBtn')) {
     document.getElementById('completeBtn').onclick = async () => {
       try {
