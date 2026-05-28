@@ -514,30 +514,32 @@ async function generateInvoicePDF(b, buyer, hauler) {
   } catch (e) { console.warn('Kunde inte ladda logo:', e); }
 
   // HEADER med logga + titel
+  let headerHeight = 22;
   if (logoDataUrl) {
     try {
       const dims = await loadImageDimensions(logoDataUrl);
-      const logoH = 18;
-      const logoW = dims && dims.h > 0 ? logoH * (dims.w / dims.h) : 28;
+      const logoH = 32; // Större logga (var 18)
+      const logoW = dims && dims.h > 0 ? logoH * (dims.w / dims.h) : 48;
       const fmt = logoDataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
       doc.addImage(logoDataUrl, fmt, M, y, logoW, logoH);
+      headerHeight = Math.max(headerHeight, logoH + 4);
     } catch (e) { console.warn('Logo addImage fel:', e); }
   } else {
     // Fallback: textbaserad logga
-    doc.setFontSize(20);
+    doc.setFontSize(24);
     doc.setTextColor(249, 115, 22);
-    doc.text('hittalast.se', M, y + 8);
+    doc.text('hittalast.se', M, y + 12);
   }
 
   // Höger sida: titel
   doc.setFontSize(16);
   doc.setTextColor(0);
-  doc.text('FAKTURAUNDERLAG', W - M, y + 5, { align: 'right' });
+  doc.text('FAKTURAUNDERLAG', W - M, y + 8, { align: 'right' });
   doc.setFontSize(9);
   doc.setTextColor(100);
-  doc.text('Körnings-ID: ' + b.id.slice(0, 8), W - M, y + 11, { align: 'right' });
-  if (b.completedAt) doc.text('Utförd: ' + new Date(b.completedAt).toLocaleDateString('sv-SE'), W - M, y + 16, { align: 'right' });
-  y += 22;
+  doc.text('Körnings-ID: ' + b.id.slice(0, 8), W - M, y + 14, { align: 'right' });
+  if (b.completedAt) doc.text('Utförd: ' + new Date(b.completedAt).toLocaleDateString('sv-SE'), W - M, y + 19, { align: 'right' });
+  y += headerHeight;
 
   // "Förmedlat via" — tydligt så kunderna inte tror hittalast.se fakturerar
   doc.setFontSize(9);
