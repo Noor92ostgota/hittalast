@@ -3546,19 +3546,24 @@ route(/^\/accept-driver\/([a-f0-9]+)$/, async (m) => {
       btn.disabled = true; btn.textContent = '⏳ Skapar konto...';
       try {
         const f = new FormData(e.target);
-        const data = {
-          email: f.get('email'), pwd: f.get('pwd'), role: 'chauffor',
-          name: f.get('name'), phone: f.get('phone'),
-        };
-        await register(data);
-        // Koppla driver-raden till nya användaren via SECURITY DEFINER-funktion
-        const { error: linkErr } = await sb.rpc('accept_driver_invitation', { token });
-        if (linkErr) {
-          console.warn('accept_driver_invitation fel:', linkErr);
-          toast('Konto skapat men koppling till åkeriet misslyckades: ' + linkErr.message, 'warn');
-        } else {
-          toast('🎉 Välkommen till hittalast.se!');
-        }
+        // Anropa Edge Function som skapar user med email_confirm=true (slipper bekräftelsemejl)
+        const resp = await fetch(`${SUPABASE_URL}/functions/v1/accept-driver-signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token,
+            password: f.get('pwd'),
+            name: (f.get('name') || '').trim(),
+            phone: (f.get('phone') || '').trim(),
+          }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Misslyckades');
+
+        // Logga in direkt
+        btn.textContent = '⏳ Loggar in...';
+        await login(driver.email, f.get('pwd'));
+        toast('🎉 Välkommen till hittalast.se!');
         navigate('/');
       } catch (err) {
         btn.disabled = false;
