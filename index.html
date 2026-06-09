@@ -5172,23 +5172,25 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
   // Bind actions
   if (document.getElementById('acceptBtn')) {
     document.getElementById('acceptBtn').onclick = async () => {
+      const btn = document.getElementById('acceptBtn');
+      btn.disabled = true; btn.textContent = '⏳ Accepterar...';
       try {
         if (!me || !me.id) { toast('Du måste vara inloggad', 'err'); return navigate('/login'); }
-        const fresh = await db.get('bookings', b.id);
-        if (!fresh) { toast('Bokningen finns inte', 'err'); return navigate('/'); }
-        if (fresh.status !== 'open') { toast('Körningen är redan accepterad', 'err'); return navigate('/'); }
-        fresh.status = 'accepted';
-        fresh.haulerId = me.id;
-        fresh.acceptedAt = Date.now();
-        fresh.commission = commissionFor(fresh.price);
-        fresh.contactVisible = true;
-        await db.put('bookings', fresh);
-        await notify(fresh.buyerId, { type:'accepted', bookingId: fresh.id, message: `${me.name} har accepterat din körning ${fresh.fromLocation} → ${fresh.toLocation}.` });
-        toast('Uppdrag accepterat. Kontaktuppgifter visas nu.');
-        navigate('/booking/' + fresh.id);
+        // Använd SECURITY DEFINER-funktion (kringgår RLS på UPDATE)
+        const { data, error } = await sb.rpc('accept_booking', { p_booking_id: b.id });
+        if (error) throw error;
+        // Sätt commission via en separat UPDATE (nu är vi hauler så RLS tillåter)
+        if (b.price) {
+          await sb.from('bookings').update({ commission: commissionFor(b.price) }).eq('id', b.id);
+        }
+        await notify(b.buyerId, { type:'accepted', bookingId: b.id, message: `${me.name} har accepterat din körning ${b.fromLocation} → ${b.toLocation}.` });
+        toast('✅ Uppdrag accepterat. Kontaktuppgifter visas nu.');
+        navigate('/booking/' + b.id);
       } catch (err) {
         console.error('Accept-fel:', err);
         toast('Kunde inte acceptera: ' + (err.message || err), 'err');
+        btn.disabled = false;
+        btn.textContent = `✓ Acceptera ${b.price ? fmtMoney(b.price) : ''}`;
       }
     };
   }
