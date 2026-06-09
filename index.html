@@ -4836,9 +4836,10 @@ route(/^\/booking\/([\w-]+)$/, async (m, u) => {
   const isOtherHauler = u && canAcceptAndPost(u) && !isBuyer && !isAssignedHauler;
   const isAdmin = u && u.role === 'admin';
   let isDriver = false;
+  let driverRow = null;
   if (u && u.role === 'chauffor') {
-    const drv = await db.oneByIndex('drivers', 'email', u.email);
-    isDriver = !!(drv && b.driverId === drv.id);
+    driverRow = await db.oneByIndex('drivers', 'email', u.email);
+    isDriver = !!(driverRow && b.driverId === driverRow.id);
     if (!isDriver) { toast('Du är inte tilldelad denna körning', 'err'); return navigate('/'); }
   }
 
@@ -4857,7 +4858,7 @@ route(/^\/booking\/([\w-]+)$/, async (m, u) => {
   }
 
   try {
-    await renderBookingDetail(b, buyer, hauler, u, { isBuyer, isAssignedHauler, isOtherHauler, isAdmin, isDriver });
+    await renderBookingDetail(b, buyer, hauler, u, { isBuyer, isAssignedHauler, isOtherHauler, isAdmin, isDriver, driverRow });
   } catch (err) {
     console.error('Booking detail-fel:', err);
     document.getElementById('app').innerHTML = layout(`<div class="banner err">Kunde inte visa bokningen: ${esc(err.message || String(err))}</div><a class="btn" href="#/">← Tillbaka</a>`);
@@ -4940,7 +4941,8 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
           🏁 <b>Steg 2 av 3:</b> Leverans till mottagaren
         </div>
         <button id="markUnloadedBtn" class="ok" style="font-size:16px;padding:14px 24px">🏁 Markera som LOSSAD</button>
-        <p class="muted" style="font-size:12px;margin-top:8px">Tryck när godset är lossat. Aviserar uppdragsgivare + åkeri.</p>`;
+        <button id="undoLoadedBtn" class="secondary" style="margin-top:8px">↩ Ångra lastning</button>
+        <p class="muted" style="font-size:12px;margin-top:8px">Tryck Lossad när godset är levererat. Klick fel? Använd Ångra-knappen.</p>`;
     } else {
       stepHtml = `
         <div class="banner ok" style="margin-bottom:8px">✅ Lastat ${fmtDate(b.loadedAt)} · Lossat ${fmtDate(b.unloadedAt)}</div>
@@ -4951,7 +4953,8 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
           <label>Bild på fraktsedel (kvitto från mottagaren)</label>
           <input type="file" id="proofFile" accept="image/*" capture="environment">
         </div>
-        <button id="completeBtn" class="ok" style="font-size:16px;padding:14px 24px">✓ Slutför uppdrag</button>`;
+        <button id="completeBtn" class="ok" style="font-size:16px;padding:14px 24px">✓ Slutför uppdrag</button>
+        <button id="undoUnloadedBtn" class="secondary" style="margin-top:8px">↩ Ångra lossning</button>`;
     }
     actions = stepHtml;
   }
@@ -5403,7 +5406,8 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         fresh.proofImageUrl = proofUrl;
         delete fresh.proofImage;
         delete fresh.bookingImage;
-        if (isDriver) fresh.completedByDriverId = me.id;
+        // Använd driverRow.id (FK till drivers-tabellen), inte me.id (auth/profile-id)
+        if (isDriver && ctx.driverRow) fresh.completedByDriverId = ctx.driverRow.id;
         await db.put('bookings', fresh);
         await notify(fresh.buyerId, { type:'completed', bookingId: fresh.id, message: `${me.name} har utfört körningen ${fresh.fromLocation} → ${fresh.toLocation}.` });
         toast('Uppdrag markerat som utfört');
@@ -5411,6 +5415,54 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       } catch (err) {
         console.error('Complete-fel:', err);
         toast('Kunde inte markera som utförd: ' + (err.message || err), 'err');
+      }
+    };
+  }
+
+  // ÅNGRA LASTNING
+  if (document.getElementById('undoLoadedBtn')) {
+    document.getElementById('undoLoadedBtn').onclick = async () => {
+      if (!confirm('Ångra lastning? Tidsstämpeln tas bort och båda parter aviseras om ändringen.')) return;
+      const btn = document.getElementById('undoLoadedBtn');
+      btn.disabled = true; btn.textContent = '⏳ Ångrar...';
+      try {
+        const fresh = await db.get('bookings', b.id);
+        fresh.loadedAt = null;
+        delete fresh.proofImage; delete fresh.bookingImage;
+        await db.put('bookings', fresh);
+        const route = `${fresh.fromLocation} → ${fresh.toLocation}`;
+        if (fresh.buyerId) await notify(fresh.buyerId, { type:'undo_load', bookingId: fresh.id, message: `↩ ${me.name} har ÅNGRAT lastning på ${route}.` });
+        if (fresh.haulerId && fresh.haulerId !== me.id) await notify(fresh.haulerId, { type:'undo_load', bookingId: fresh.id, message: `↩ ${me.name} har ÅNGRAT lastning på ${route}.` });
+        toast('↩ Lastning ångrad');
+        navigate('/booking/' + fresh.id);
+      } catch (err) {
+        console.error('Ångra-fel:', err);
+        toast('Kunde inte ångra: ' + (err.message || err), 'err');
+        btn.disabled = false; btn.textContent = '↩ Ångra lastning';
+      }
+    };
+  }
+
+  // ÅNGRA LOSSNING
+  if (document.getElementById('undoUnloadedBtn')) {
+    document.getElementById('undoUnloadedBtn').onclick = async () => {
+      if (!confirm('Ångra lossning? Tidsstämpeln tas bort och båda parter aviseras om ändringen.')) return;
+      const btn = document.getElementById('undoUnloadedBtn');
+      btn.disabled = true; btn.textContent = '⏳ Ångrar...';
+      try {
+        const fresh = await db.get('bookings', b.id);
+        fresh.unloadedAt = null;
+        delete fresh.proofImage; delete fresh.bookingImage;
+        await db.put('bookings', fresh);
+        const route = `${fresh.fromLocation} → ${fresh.toLocation}`;
+        if (fresh.buyerId) await notify(fresh.buyerId, { type:'undo_unload', bookingId: fresh.id, message: `↩ ${me.name} har ÅNGRAT lossning på ${route}.` });
+        if (fresh.haulerId && fresh.haulerId !== me.id) await notify(fresh.haulerId, { type:'undo_unload', bookingId: fresh.id, message: `↩ ${me.name} har ÅNGRAT lossning på ${route}.` });
+        toast('↩ Lossning ångrad');
+        navigate('/booking/' + fresh.id);
+      } catch (err) {
+        console.error('Ångra-fel:', err);
+        toast('Kunde inte ångra: ' + (err.message || err), 'err');
+        btn.disabled = false; btn.textContent = '↩ Ångra lossning';
       }
     };
   }
