@@ -5396,25 +5396,29 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
 
   if (document.getElementById('completeBtn')) {
     document.getElementById('completeBtn').onclick = async () => {
+      const btn = document.getElementById('completeBtn');
+      btn.disabled = true; btn.textContent = '⏳ Sparar...';
       try {
         const proofFile = document.getElementById('proofFile').files[0];
-        if (!proofFile) { toast('Ladda upp bild på fraktsedel först', 'err'); return; }
+        if (!proofFile) { toast('Ladda upp bild på fraktsedel först', 'err'); btn.disabled = false; btn.textContent = '✓ Slutför uppdrag'; return; }
         const proofUrl = await uploadImage(proofFile, 'proof-images');
-        const fresh = await db.get('bookings', b.id);
-        fresh.status = 'completed';
-        fresh.completedAt = new Date().toISOString();
-        fresh.proofImageUrl = proofUrl;
-        delete fresh.proofImage;
-        delete fresh.bookingImage;
-        // Använd driverRow.id (FK till drivers-tabellen), inte me.id (auth/profile-id)
-        if (isDriver && ctx.driverRow) fresh.completedByDriverId = ctx.driverRow.id;
-        await db.put('bookings', fresh);
-        await notify(fresh.buyerId, { type:'completed', bookingId: fresh.id, message: `${me.name} har utfört körningen ${fresh.fromLocation} → ${fresh.toLocation}.` });
+        // Bygg payload med BARA fälten vi vill uppdatera (undvik FK-bugg från gamla värden)
+        const updates = {
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          proof_image_url: proofUrl,
+          // Bara om vi har en giltig driver-rad — annars NULL (FK accepterar NULL)
+          completed_by_driver_id: (isDriver && ctx.driverRow) ? ctx.driverRow.id : null,
+        };
+        const { error } = await sb.from('bookings').update(updates).eq('id', b.id);
+        if (error) throw error;
+        await notify(b.buyerId, { type:'completed', bookingId: b.id, message: `${me.name} har utfört körningen ${b.fromLocation} → ${b.toLocation}.` });
         toast('Uppdrag markerat som utfört');
-        navigate('/booking/' + fresh.id);
+        navigate('/booking/' + b.id);
       } catch (err) {
         console.error('Complete-fel:', err);
         toast('Kunde inte markera som utförd: ' + (err.message || err), 'err');
+        btn.disabled = false; btn.textContent = '✓ Slutför uppdrag';
       }
     };
   }
