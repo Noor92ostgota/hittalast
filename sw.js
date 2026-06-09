@@ -2,7 +2,7 @@
 // Strategi: network-first för HTML, cache-first för statiska assets, INGEN cache av API-anrop.
 // Designad för att aldrig hänga sig även vid nätverksfel eller race conditions mellan flikar.
 
-const CACHE_VERSION = 'v3-2026-06-09';
+const CACHE_VERSION = 'v4-2026-06-09b';
 const CACHE_NAME = `hittalast-${CACHE_VERSION}`;
 const STATIC_ASSETS = ['/index.html', '/logo.png', '/manifest.json'];
 

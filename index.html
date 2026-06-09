@@ -5347,22 +5347,19 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       navigate('/booking/' + b.id);
     };
   });
-  // LASTAD-knapp
+  // LASTAD-knapp — targeted UPDATE (rör bara loaded_at)
   if (document.getElementById('markLoadedBtn')) {
     document.getElementById('markLoadedBtn').onclick = async () => {
       const btn = document.getElementById('markLoadedBtn');
       btn.disabled = true; btn.textContent = '⏳ Sparar...';
       try {
-        const fresh = await db.get('bookings', b.id);
-        fresh.loadedAt = new Date().toISOString();
-        delete fresh.proofImage; delete fresh.bookingImage;
-        await db.put('bookings', fresh);
-        const route = `${fresh.fromLocation} → ${fresh.toLocation}`;
-        // Avisera båda parter
-        if (fresh.buyerId) await notify(fresh.buyerId, { type:'loaded', bookingId: fresh.id, message: `📍 LASTAT: ${me.name} har lastat på ${route}.` });
-        if (fresh.haulerId && fresh.haulerId !== me.id) await notify(fresh.haulerId, { type:'loaded', bookingId: fresh.id, message: `📍 LASTAT: ${me.name} har lastat på ${route}.` });
+        const { error } = await sb.from('bookings').update({ loaded_at: new Date().toISOString() }).eq('id', b.id);
+        if (error) throw error;
+        const route = `${b.fromLocation} → ${b.toLocation}`;
+        if (b.buyerId) await notify(b.buyerId, { type:'loaded', bookingId: b.id, message: `📍 LASTAT: ${me.name} har lastat på ${route}.` });
+        if (b.haulerId && b.haulerId !== me.id) await notify(b.haulerId, { type:'loaded', bookingId: b.id, message: `📍 LASTAT: ${me.name} har lastat på ${route}.` });
         toast('📍 Markerat som lastat — båda parter aviserade');
-        navigate('/booking/' + fresh.id);
+        navigate('/booking/' + b.id);
       } catch (err) {
         console.error('Lastad-fel:', err);
         toast('Kunde inte markera: ' + (err.message || err), 'err');
@@ -5371,21 +5368,19 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
     };
   }
 
-  // LOSSAD-knapp
+  // LOSSAD-knapp — targeted UPDATE (rör bara unloaded_at)
   if (document.getElementById('markUnloadedBtn')) {
     document.getElementById('markUnloadedBtn').onclick = async () => {
       const btn = document.getElementById('markUnloadedBtn');
       btn.disabled = true; btn.textContent = '⏳ Sparar...';
       try {
-        const fresh = await db.get('bookings', b.id);
-        fresh.unloadedAt = new Date().toISOString();
-        delete fresh.proofImage; delete fresh.bookingImage;
-        await db.put('bookings', fresh);
-        const route = `${fresh.fromLocation} → ${fresh.toLocation}`;
-        if (fresh.buyerId) await notify(fresh.buyerId, { type:'unloaded', bookingId: fresh.id, message: `🏁 LOSSAT: ${me.name} har levererat på ${route}.` });
-        if (fresh.haulerId && fresh.haulerId !== me.id) await notify(fresh.haulerId, { type:'unloaded', bookingId: fresh.id, message: `🏁 LOSSAT: ${me.name} har levererat på ${route}.` });
+        const { error } = await sb.from('bookings').update({ unloaded_at: new Date().toISOString() }).eq('id', b.id);
+        if (error) throw error;
+        const route = `${b.fromLocation} → ${b.toLocation}`;
+        if (b.buyerId) await notify(b.buyerId, { type:'unloaded', bookingId: b.id, message: `🏁 LOSSAT: ${me.name} har levererat på ${route}.` });
+        if (b.haulerId && b.haulerId !== me.id) await notify(b.haulerId, { type:'unloaded', bookingId: b.id, message: `🏁 LOSSAT: ${me.name} har levererat på ${route}.` });
         toast('🏁 Markerat som lossat — båda parter aviserade');
-        navigate('/booking/' + fresh.id);
+        navigate('/booking/' + b.id);
       } catch (err) {
         console.error('Lossad-fel:', err);
         toast('Kunde inte markera: ' + (err.message || err), 'err');
@@ -5423,22 +5418,20 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
     };
   }
 
-  // ÅNGRA LASTNING
+  // ÅNGRA LASTNING — targeted UPDATE
   if (document.getElementById('undoLoadedBtn')) {
     document.getElementById('undoLoadedBtn').onclick = async () => {
       if (!confirm('Ångra lastning? Tidsstämpeln tas bort och båda parter aviseras om ändringen.')) return;
       const btn = document.getElementById('undoLoadedBtn');
       btn.disabled = true; btn.textContent = '⏳ Ångrar...';
       try {
-        const fresh = await db.get('bookings', b.id);
-        fresh.loadedAt = null;
-        delete fresh.proofImage; delete fresh.bookingImage;
-        await db.put('bookings', fresh);
-        const route = `${fresh.fromLocation} → ${fresh.toLocation}`;
-        if (fresh.buyerId) await notify(fresh.buyerId, { type:'undo_load', bookingId: fresh.id, message: `↩ ${me.name} har ÅNGRAT lastning på ${route}.` });
-        if (fresh.haulerId && fresh.haulerId !== me.id) await notify(fresh.haulerId, { type:'undo_load', bookingId: fresh.id, message: `↩ ${me.name} har ÅNGRAT lastning på ${route}.` });
+        const { error } = await sb.from('bookings').update({ loaded_at: null }).eq('id', b.id);
+        if (error) throw error;
+        const route = `${b.fromLocation} → ${b.toLocation}`;
+        if (b.buyerId) await notify(b.buyerId, { type:'undo_load', bookingId: b.id, message: `↩ ${me.name} har ÅNGRAT lastning på ${route}.` });
+        if (b.haulerId && b.haulerId !== me.id) await notify(b.haulerId, { type:'undo_load', bookingId: b.id, message: `↩ ${me.name} har ÅNGRAT lastning på ${route}.` });
         toast('↩ Lastning ångrad');
-        navigate('/booking/' + fresh.id);
+        navigate('/booking/' + b.id);
       } catch (err) {
         console.error('Ångra-fel:', err);
         toast('Kunde inte ångra: ' + (err.message || err), 'err');
@@ -5447,22 +5440,20 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
     };
   }
 
-  // ÅNGRA LOSSNING
+  // ÅNGRA LOSSNING — targeted UPDATE
   if (document.getElementById('undoUnloadedBtn')) {
     document.getElementById('undoUnloadedBtn').onclick = async () => {
       if (!confirm('Ångra lossning? Tidsstämpeln tas bort och båda parter aviseras om ändringen.')) return;
       const btn = document.getElementById('undoUnloadedBtn');
       btn.disabled = true; btn.textContent = '⏳ Ångrar...';
       try {
-        const fresh = await db.get('bookings', b.id);
-        fresh.unloadedAt = null;
-        delete fresh.proofImage; delete fresh.bookingImage;
-        await db.put('bookings', fresh);
-        const route = `${fresh.fromLocation} → ${fresh.toLocation}`;
-        if (fresh.buyerId) await notify(fresh.buyerId, { type:'undo_unload', bookingId: fresh.id, message: `↩ ${me.name} har ÅNGRAT lossning på ${route}.` });
-        if (fresh.haulerId && fresh.haulerId !== me.id) await notify(fresh.haulerId, { type:'undo_unload', bookingId: fresh.id, message: `↩ ${me.name} har ÅNGRAT lossning på ${route}.` });
+        const { error } = await sb.from('bookings').update({ unloaded_at: null }).eq('id', b.id);
+        if (error) throw error;
+        const route = `${b.fromLocation} → ${b.toLocation}`;
+        if (b.buyerId) await notify(b.buyerId, { type:'undo_unload', bookingId: b.id, message: `↩ ${me.name} har ÅNGRAT lossning på ${route}.` });
+        if (b.haulerId && b.haulerId !== me.id) await notify(b.haulerId, { type:'undo_unload', bookingId: b.id, message: `↩ ${me.name} har ÅNGRAT lossning på ${route}.` });
         toast('↩ Lossning ångrad');
-        navigate('/booking/' + fresh.id);
+        navigate('/booking/' + b.id);
       } catch (err) {
         console.error('Ångra-fel:', err);
         toast('Kunde inte ångra: ' + (err.message || err), 'err');
