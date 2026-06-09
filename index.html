@@ -825,14 +825,20 @@ function isHauler(u) { return u && (u.role === 'akare' || u.role === 'admin'); }
 // --------- Bud + aviseringar ---------
 async function notify(userId, payload) {
   if (!userId) return;
-  return db.add('notifications', {
-    userId,
-    type: payload.type,
-    bookingId: payload.bookingId || null,
-    bidId: payload.bidId || null,
-    message: payload.message,
-    read: false,
-  });
+  // Aldrig låt notify krascha huvudflödet — RLS-fel ska inte stoppa Slutför etc.
+  try {
+    return await db.add('notifications', {
+      userId,
+      type: payload.type,
+      bookingId: payload.bookingId || null,
+      bidId: payload.bidId || null,
+      message: payload.message,
+      read: false,
+    });
+  } catch (err) {
+    console.warn('notify() fel (ignoreras):', err?.message || err);
+    return null;
+  }
 }
 async function unreadCount(userId) {
   if (!userId) return 0;
