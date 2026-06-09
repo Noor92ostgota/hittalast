@@ -5658,11 +5658,16 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
   }
 }
 
-// --------- PWA: service worker-registrering ---------
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW registration failed:', err));
-  });
+// --------- PWA: service worker AVAKTIVERAD pga cache-problem under utveckling ---------
+// Avregistrera eventuell befintlig service worker så användare alltid får senaste koden
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(reg => reg.unregister().catch(() => {}));
+  }).catch(() => {});
+  // Rensa caches också
+  if (window.caches) {
+    caches.keys().then(keys => keys.forEach(k => caches.delete(k).catch(() => {}))).catch(() => {});
+  }
 }
 
 // --------- PWA: "Installera app"-prompt ---------
