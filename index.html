@@ -4851,7 +4851,8 @@ route(/^\/booking\/([\w-]+)$/, async (m, u) => {
     toast('Ingen åtkomst', 'err'); return navigate('/');
   }
   // Övriga inloggade kan se öppna och sina egna; inte andras accepterade
-  if (!isBuyer && !isAdmin && b.status !== 'open' && !isAssignedHauler) {
+  // Chaufför som är tilldelad får också se accepterade bokningar
+  if (!isBuyer && !isAdmin && !isDriver && b.status !== 'open' && !isAssignedHauler) {
     toast('Bokningen är inte längre tillgänglig', 'err'); return navigate('/');
   }
 
