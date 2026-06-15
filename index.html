@@ -1629,26 +1629,88 @@ route(/^\/opt-out\/([a-f0-9]+)$/, async (m) => {
 });
 
 route(/^\/login$/, async () => {
-  document.getElementById('app').innerHTML = `
-    <div class="auth-wrap">
-      <div class="card">
-        <div style="text-align:center;margin-bottom:16px"><img src="/logo.png" alt="hittalast.se" style="max-width:240px;width:100%;height:auto"></div>
-        <form id="loginForm">
-          <div class="field"><label>E-post</label><input name="email" type="email" required autocomplete="username"></div>
-          <div class="field"><label>Lösenord</label><input name="pwd" type="password" required autocomplete="current-password"></div>
-          <button type="submit" style="width:100%">Logga in</button>
-        </form>
-        <div class="switch"><a onclick="location.hash='#/'">← Tillbaka till startsidan</a></div>
-      </div>
-    </div>`;
-  document.getElementById('loginForm').onsubmit = async e => {
-    e.preventDefault();
-    const f = new FormData(e.target);
-    try {
-      await login(f.get('email'), f.get('pwd'));
-      navigate('/');
-    } catch (err) { toast(err.message, 'err'); }
-  };
+  // Användartyp från URL eller sessionStorage (default: ej valt = visa väljare)
+  const typeFromUrl = new URLSearchParams(location.hash.split('?')[1] || '').get('as');
+  let userType = typeFromUrl || sessionStorage.getItem('loginUserType') || '';
+  if (typeFromUrl) sessionStorage.setItem('loginUserType', typeFromUrl);
+
+  function renderPicker() {
+    document.getElementById('app').innerHTML = `
+      <div class="auth-wrap">
+        <div class="card">
+          <div style="text-align:center;margin-bottom:20px"><img src="/logo.png" alt="hittalast.se" style="max-width:240px;width:100%;height:auto"></div>
+          <h2 style="text-align:center;margin-top:0">Logga in</h2>
+          <p class="muted" style="text-align:center;margin-top:-8px">Välj vad du loggar in som:</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:20px 0">
+            <button type="button" id="pickCompany" style="border:2px solid var(--brand);background:#fff;border-radius:12px;padding:24px 14px;cursor:pointer;font-family:inherit;text-align:center;transition:transform 0.1s">
+              <div style="font-size:36px">🏢</div>
+              <div style="font-weight:700;font-size:16px;margin-top:8px;color:#0a0a0a">Företag</div>
+              <div style="font-size:12px;color:#6b7280;margin-top:4px">Åkare, speditör eller köpare</div>
+            </button>
+            <button type="button" id="pickDriver" style="border:2px solid var(--brand);background:#fff;border-radius:12px;padding:24px 14px;cursor:pointer;font-family:inherit;text-align:center;transition:transform 0.1s">
+              <div style="font-size:36px">🚛</div>
+              <div style="font-weight:700;font-size:16px;margin-top:8px;color:#0a0a0a">Chaufför</div>
+              <div style="font-size:12px;color:#6b7280;margin-top:4px">Förare med tilldelade uppdrag</div>
+            </button>
+          </div>
+          <div class="switch" style="text-align:center"><a onclick="location.hash='#/'">← Tillbaka till startsidan</a></div>
+        </div>
+      </div>`;
+    document.getElementById('pickCompany').onclick = () => {
+      sessionStorage.setItem('loginUserType', 'company');
+      userType = 'company';
+      renderForm();
+    };
+    document.getElementById('pickDriver').onclick = () => {
+      sessionStorage.setItem('loginUserType', 'driver');
+      userType = 'driver';
+      renderForm();
+    };
+  }
+
+  function renderForm() {
+    const isDriver = userType === 'driver';
+    const icon = isDriver ? '🚛' : '🏢';
+    const title = isDriver ? 'Logga in som chaufför' : 'Logga in som företag';
+    const subtitle = isDriver
+      ? 'Du ser dina tilldelade uppdrag, markerar lastad/lossad och laddar upp fraktsedel.'
+      : 'Som åkare, speditör eller köpare. Lägg upp körningar, lägg bud, ta emot uppdrag.';
+    document.getElementById('app').innerHTML = `
+      <div class="auth-wrap">
+        <div class="card">
+          <div style="text-align:center;margin-bottom:16px"><img src="/logo.png" alt="hittalast.se" style="max-width:200px;width:80%;height:auto"></div>
+          <div style="text-align:center;font-size:42px;margin-bottom:6px">${icon}</div>
+          <h2 style="text-align:center;margin-top:0">${title}</h2>
+          <p class="muted" style="text-align:center;margin-top:-8px;font-size:13px">${subtitle}</p>
+          <form id="loginForm" style="margin-top:20px">
+            <div class="field"><label>E-post</label><input name="email" type="email" required autocomplete="username"></div>
+            <div class="field"><label>Lösenord</label><input name="pwd" type="password" required autocomplete="current-password"></div>
+            <button type="submit" style="width:100%">Logga in</button>
+          </form>
+          <div class="switch" style="text-align:center">
+            <a id="changeType" style="cursor:pointer">↩ Ändra typ</a>
+            &nbsp;·&nbsp;
+            <a onclick="location.hash='#/'">Startsidan</a>
+          </div>
+        </div>
+      </div>`;
+    document.getElementById('changeType').onclick = () => {
+      sessionStorage.removeItem('loginUserType');
+      userType = '';
+      renderPicker();
+    };
+    document.getElementById('loginForm').onsubmit = async e => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      try {
+        await login(f.get('email'), f.get('pwd'));
+        navigate('/');
+      } catch (err) { toast(err.message, 'err'); }
+    };
+  }
+
+  if (userType === 'company' || userType === 'driver') renderForm();
+  else renderPicker();
 });
 
 route(/^\/register$/, async () => {
