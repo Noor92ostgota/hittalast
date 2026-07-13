@@ -1,4 +1,4 @@
-// Kill-switch service worker
+// v5 · Kill-switch service worker
 // Tidigare cachade vi index.html vilket gjorde att användare fastnade
 // på gamla versioner. Nu avregistrerar SW sig själv och rensar caches.
 

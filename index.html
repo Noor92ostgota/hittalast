@@ -152,7 +152,7 @@
   .nav-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:998}
   .nav-backdrop.open{display:block}
 
-  /* ============== LANDING PAGE (lansering 1 juli) ============== */
+  /* ============== LANDING PAGE (lansering 1 september) ============== */
   .landing{min-height:100vh;background:linear-gradient(135deg,#0a0a0a 0%,#1f1f1f 60%,#2d2d2d 100%);color:#fff;position:relative;overflow:hidden}
   .landing::before{content:"";position:absolute;top:-10%;left:-10%;width:60%;height:60%;background:radial-gradient(circle,rgba(249,115,22,.18) 0%,transparent 70%);pointer-events:none}
   .landing::after{content:"";position:absolute;bottom:-30%;right:-10%;width:70%;height:70%;background:radial-gradient(circle,rgba(249,115,22,.12) 0%,transparent 70%);pointer-events:none}
@@ -2122,8 +2122,8 @@ route(/^\/$/, async (_m, u) => {
 });
 
 // --------- Publik vy (utan inlogg) ---------
-// ============== LANDNINGSSIDA — låst tills 1 juli 2026 06:00 ==============
-const LAUNCH_DATE = new Date('2026-07-01T06:00:00+02:00');
+// ============== LANDNINGSSIDA — låst tills 1 september 2026 06:00 ==============
+const LAUNCH_DATE = new Date('2026-09-01T06:00:00+02:00');
 function isLaunched() { return Date.now() >= LAUNCH_DATE.getTime(); }
 
 async function publicDashboard() {
@@ -2149,7 +2149,7 @@ async function publicDashboard() {
   // Olika UI före och efter lansering
   const eyebrow = launched
     ? '<span class="landing-eyebrow" style="background:rgba(34,197,94,.15);color:#86efac">🟢 Live nu — skapa ditt konto</span>'
-    : '<span class="landing-eyebrow">🟡 Lansering 1 juli 2026 — gå med i väntelistan</span>';
+    : '<span class="landing-eyebrow">🟡 Lansering 1 september 2026 — gå med i väntelistan</span>';
 
   const ctaCard = launched ? `
     <div class="landing-card">
@@ -2163,7 +2163,7 @@ async function publicDashboard() {
     <div class="landing-card">
       <div id="signup-area">
         <h2>Gå med i väntelistan</h2>
-        <p class="lead">Var bland de första att få inbjudan när vi öppnar 1 juli. Ingen förpliktelse, du kan avregistrera dig när som helst.</p>
+        <p class="lead">Var bland de första att få inbjudan när vi öppnar 1 september. Ingen förpliktelse, du kan avregistrera dig när som helst.</p>
         <form id="waitlist-form">
           <label>E-postadress *</label>
           <input type="email" name="email" required autocomplete="email">
@@ -2312,7 +2312,7 @@ async function publicDashboard() {
       document.getElementById('signup-area').innerHTML = `
         <div class="landing-success">
           <h3>🎉 Du är inne!</h3>
-          <p>Vi har sparat din anmälan och hör av oss till <b>${esc(email)}</b> innan lansering den 1 juli.</p>
+          <p>Vi har sparat din anmälan och hör av oss till <b>${esc(email)}</b> innan lansering den 1 september.</p>
         </div>`;
     } catch (err) {
       btn.disabled = false;
@@ -4094,7 +4094,7 @@ route(/^\/waitlist$/, async (_m, u) => {
       <a href="#/" class="btn secondary">← Tillbaka</a>
       <h2 style="margin:0">📋 Väntelista (${rows.length})</h2>
     </div>
-    <div class="muted" style="margin-bottom:12px">Personer som anmält sig till lansering 1 juli 2026.</div>
+    <div class="muted" style="margin-bottom:12px">Personer som anmält sig till lansering 1 september 2026.</div>
     <div class="card">
       ${rows.length === 0 ? `<div class="empty">Inga anmälningar ännu.</div>` : `<table class="compact">
         <thead><tr><th>Datum</th><th>E-post</th><th>Namn</th><th>Företag</th><th>Org.nr</th><th>Telefon</th><th>Roll</th><th>Flotta</th></tr></thead>
