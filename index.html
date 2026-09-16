@@ -1314,6 +1314,66 @@ function updateBellBadge(count) {
   }
 }
 
+// --------- Snabbväxling mellan test-användare (bara för admin) ---------
+// Sparar lösenord LOKALT i webbläsaren så admin kan snabbväxla mellan roller vid testning.
+const TEST_USERS = [
+  { email: 'noor@ostgotatransport.se',    role: 'admin',    label: 'Admin (Noor)',        icon: '🏢' },
+  { email: 'info@ostgotatransport.se',    role: 'akare',    label: 'Åkare (Katarina)',    icon: '🚚' },
+  { email: 'noormadjed@hotmail.com',      role: 'chauffor', label: 'Chaufför (Test)',     icon: '🚛' },
+];
+const QUICK_LOGIN_KEY = 'hittalast_quick_logins_v1';
+function loadQuickLogins() {
+  try {
+    const raw = localStorage.getItem(QUICK_LOGIN_KEY);
+    if (!raw) return {};
+    return JSON.parse(atob(raw));
+  } catch { return {}; }
+}
+function saveQuickLogin(email, password) {
+  const store = loadQuickLogins();
+  store[email] = password;
+  try { localStorage.setItem(QUICK_LOGIN_KEY, btoa(JSON.stringify(store))); } catch {}
+}
+function clearQuickLogins() {
+  try { localStorage.removeItem(QUICK_LOGIN_KEY); } catch {}
+}
+async function switchToUser(email) {
+  const store = loadQuickLogins();
+  let password = store[email];
+  if (!password) {
+    password = prompt(`Ange lösenordet för ${email}\n\nSparas lokalt i denna webbläsare för framtida snabbväxling.`);
+    if (!password) return;
+    saveQuickLogin(email, password);
+  }
+  const currentUser = currentUserSync ? currentUserSync() : null;
+  const currentEmail = currentUser?.email;
+  // Om vi växlar FRÅN en admin så spara admin's email så vi kan gå tillbaka
+  if (currentUser?.role === 'admin' && currentEmail && currentEmail !== email) {
+    sessionStorage.setItem('impersonatedByEmail', currentEmail);
+  } else if (currentUser?.role !== 'admin' && email === sessionStorage.getItem('impersonatedByEmail')) {
+    // Om vi går TILLBAKA till admin, rensa flaggan
+    sessionStorage.removeItem('impersonatedByEmail');
+  }
+  try {
+    await sb.auth.signOut();
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) {
+      // Lösenordet är fel — ta bort det så användaren får ange nytt
+      const s = loadQuickLogins(); delete s[email];
+      try { localStorage.setItem(QUICK_LOGIN_KEY, btoa(JSON.stringify(s))); } catch {}
+      alert(`Kunde inte logga in som ${email}: ${error.message}\n\nSparat lösenord raderat. Försök igen.`);
+      return;
+    }
+    // Hard reload för att uppdatera hela UI
+    location.hash = '#/';
+    location.reload();
+  } catch (err) {
+    alert('Fel: ' + (err.message || err));
+  }
+}
+// Kompatibilitets-shim (currentUser existerar redan; skapar en alias för tydlighet)
+function currentUserSync() { return typeof currentUser === 'function' ? currentUser() : null; }
+
 // --------- Notifikationsljud (på/av per användare via localStorage) ---------
 function isSoundEnabled() {
   return localStorage.getItem('hittalast_sound') !== 'off';
@@ -1407,6 +1467,10 @@ function layout(inner) {
   const unread = u ? _unreadCache : 0;
   const bell = u ? `<a href="#/notifications" title="Aviseringar" class="bell-link">🔔<span class="label" style="margin-left:6px">Aviseringar</span>${unread>0?`<span class="bell-badge">${unread}</span>`:''}</a>` : '';
   const soundBtn = u ? `<button id="sound-toggle" type="button" title="${isSoundEnabled()?'Notifikationsljud PÅ':'Notifikationsljud AV'}" style="background:none;border:none;font-size:18px;cursor:pointer;padding:0 6px;line-height:1">${isSoundEnabled()?'🔊':'🔇'}</button>` : '';
+  // Roll-växlare: bara för admin ELLER när admin redan impersonat en annan
+  const impersonatedBy = sessionStorage.getItem('impersonatedByEmail');
+  const showSwitcher = u && (u.role === 'admin' || impersonatedBy);
+  const switcherBtn = showSwitcher ? `<button id="role-switcher" type="button" title="Snabbväxla mellan admin/åkare/chaufför" style="background:none;border:none;font-size:18px;cursor:pointer;padding:0 6px;line-height:1;position:relative">🎭${impersonatedBy?'<span style="position:absolute;top:-4px;right:-4px;background:#f97316;color:#fff;font-size:9px;padding:1px 4px;border-radius:8px;font-weight:700">!</span>':''}</button>` : '';
   const userBlock = u ? `<span class="who">${esc(u.name)} · ${ROLE_LABEL[u.role]}</span>
                <a href="#" id="logout-link"><span class="label">Logga ut</span> ↩</a>` : '';
   return `
@@ -1419,9 +1483,11 @@ function layout(inner) {
         ${navLinks}
         ${bell}
         ${soundBtn}
+        ${switcherBtn}
         ${userBlock}
       </nav>
     </header>
+    ${impersonatedBy ? `<div style="background:#f97316;color:#fff;padding:8px 16px;text-align:center;font-size:13px;font-weight:600">👤 Du är inloggad som <b>${esc(u?.name || u?.email)}</b> (${ROLE_LABEL[u?.role] || u?.role}) &nbsp;·&nbsp; <a href="#" id="back-to-admin" style="color:#fff;text-decoration:underline">↩ Tillbaka till admin (${esc(impersonatedBy)})</a></div>` : ''}
     <div id="nav-backdrop" class="nav-backdrop"></div>
     <main>${inner}</main>
   `;
@@ -1458,6 +1524,72 @@ function mount(html) {
     setSoundEnabled(newState);
     toast(newState ? '🔊 Notifikationsljud påslaget' : '🔇 Notifikationsljud avstängt');
     if (newState) playNotificationSound(); // ge en bekräftelse-ding
+  };
+
+  // Roll-växlare: klicka för att öppna dropdown med test-användare
+  const switcherBtn = document.getElementById('role-switcher');
+  if (switcherBtn) switcherBtn.onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Bygg dropdown
+    let menu = document.getElementById('role-switcher-menu');
+    if (menu) { menu.remove(); return; } // toggle: klicka igen för att stänga
+    const u = currentUserSync();
+    menu = document.createElement('div');
+    menu.id = 'role-switcher-menu';
+    const rect = switcherBtn.getBoundingClientRect();
+    menu.style.cssText = `position:fixed;top:${rect.bottom + 6}px;right:${window.innerWidth - rect.right}px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.12);padding:8px;z-index:9999;min-width:220px`;
+    const store = loadQuickLogins();
+    menu.innerHTML = `
+      <div style="padding:6px 10px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;font-weight:700">Byt roll (testverktyg)</div>
+      ${TEST_USERS.map(t => {
+        const active = u?.email === t.email;
+        const saved = !!store[t.email];
+        return `<button data-email="${t.email}" class="rs-item" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;border:none;background:${active?'#fff7ed':'#fff'};cursor:pointer;text-align:left;font:inherit;border-radius:6px;margin:2px 0;color:#0a0a0a">
+          <span style="font-size:22px">${t.icon}</span>
+          <div style="flex:1">
+            <div style="font-weight:600">${esc(t.label)}</div>
+            <div style="font-size:11px;color:#6b7280">${esc(t.email)} ${active?'· AKTIV':(saved?'':' · lösenord ej sparat')}</div>
+          </div>
+        </button>`;
+      }).join('')}
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:6px 0">
+      <button id="rs-clear" style="display:block;width:100%;padding:8px 12px;border:none;background:#fff;cursor:pointer;text-align:left;font:inherit;color:#b42318;font-size:12px;border-radius:6px">🗑 Rensa sparade lösenord</button>
+    `;
+    document.body.appendChild(menu);
+    // Handlers per rad
+    menu.querySelectorAll('.rs-item').forEach(btn => {
+      btn.onclick = () => {
+        const email = btn.dataset.email;
+        menu.remove();
+        if (currentUserSync()?.email === email) { toast('Du är redan inloggad som denna användare'); return; }
+        switchToUser(email);
+      };
+    });
+    document.getElementById('rs-clear').onclick = () => {
+      if (!confirm('Rensa alla sparade lösenord för snabbväxling?')) return;
+      clearQuickLogins();
+      sessionStorage.removeItem('impersonatedByEmail');
+      menu.remove();
+      toast('Sparade lösenord rensade');
+    };
+    // Stäng vid klick utanför
+    setTimeout(() => {
+      document.addEventListener('click', function closeMenu(ev) {
+        if (!menu.contains(ev.target) && ev.target !== switcherBtn) {
+          menu.remove();
+          document.removeEventListener('click', closeMenu);
+        }
+      });
+    }, 50);
+  };
+
+  // "Tillbaka till admin"-banner-länk
+  const backToAdmin = document.getElementById('back-to-admin');
+  if (backToAdmin) backToAdmin.onclick = (e) => {
+    e.preventDefault();
+    const adminEmail = sessionStorage.getItem('impersonatedByEmail');
+    if (adminEmail) switchToUser(adminEmail);
   };
 
   // Hamburgarmeny på mobil
