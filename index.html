@@ -3081,14 +3081,20 @@ async function rpGeocode(name) {
   const session = await sb.auth.getSession();
   const token = session?.data?.session?.access_token;
   if (!token) throw new Error('Din inloggning har gått ut – logga in igen.');
-  let r;
+  let r, j;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10000); // hänger aldrig och låser sökknappen
   try {
     r = await fetch(`${SUPABASE_URL}/functions/v1/geocode`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ place: name }),
+      body: JSON.stringify({ place: name }), signal: ctrl.signal,
     });
-  } catch { throw new Error('Kunde inte nå ortsuppslaget (nätverksfel). Försök igen om en stund.'); }
-  const j = await r.json().catch(() => ({}));
+    j = await r.json().catch(() => ({}));
+  } catch (e) {
+    throw new Error(e?.name === 'AbortError'
+      ? 'Ortsuppslaget svarade inte i tid. Försök igen om en stund.'
+      : 'Kunde inte nå ortsuppslaget (nätverksfel). Försök igen om en stund.');
+  } finally { clearTimeout(timer); }
   if (r.status === 401) throw new Error('Din inloggning har gått ut – logga in igen.');
   if (!r.ok) throw new Error(j.error || `Ortsuppslaget svarade inte (${r.status}). Försök igen om en stund.`);
   if (!j.found) return null;
@@ -3099,6 +3105,8 @@ async function rpGeocode(name) {
 // ---- Fritext -> fält ("Jag har en bil i Helsingborg och ska till Stockholm på onsdag, 8 flm") ----
 // Orter som också är vanliga ord – kräver stor bokstav eller "i/till/från" framför för att räknas som ort
 const RP_STOPWORDS = new Set(['vara', 'mora', 'sala', 'holm', 'boden', 'lund', 'nora', 'köping']);
+// Ordgräns: även bindestreck och snedstreck skiljer orter åt ("Göteborg-Stockholm", "Varberg/GBG"). Minustecknet måste stå sist.
+const RP_BND = /[\s,.;:!?()/+><–—-]/;
 // Obs: \b fungerar inte med å/ä/ö i JS-regex, därför \s / (?![a-zåäö]) i stället
 const RP_DEST_RE = /\s(till|mot|åt|ner till|upp till|slutar i|hem till|vidare till|ska till)\s*$/;
 const RP_START_RE = /\s(från|står i|bil i|bilen i|lastbil i|lastbilen i|utgår från|startar i|finns i|är i|befinner sig i|tom i|tomt i)\s*$/;
@@ -3112,11 +3120,14 @@ function rpParseText(text, places) {
     let i = t.indexOf(r.place);
     while (i !== -1) {
       const before = t[i-1] || ' ', after = t[i + r.place.length] || ' ';
-      if (/[\s,.;:!?()]/.test(before) && /[\s,.;:!?()]/.test(after)) {
+      if (RP_BND.test(before) && RP_BND.test(after)) {
         const pre = t.slice(Math.max(0, i - 20), i);
+        const post = t.slice(i + r.place.length, i + r.place.length + 14);
         const marker = /\s(i|från|till|mot|åt|via|mellan|och)\s*$/.test(pre);
+        // markör EFTER orten duger också: "mora, ska till …", "lund till …", "göteborg-stockholm"
+        const routeish = /^\s*[,–—/-]?\s*(ska\s|till\s|mot\s|åt\s|[–—/-])/.test(post);
         const capital = sameLen && raw[i] !== t[i];
-        if (capital || marker || !RP_STOPWORDS.has(r.place)) { found.push({ r, idx: i, pre }); break; }
+        if (capital || marker || routeish || !RP_STOPWORDS.has(r.place)) { found.push({ r, idx: i, pre }); break; }
       }
       i = t.indexOf(r.place, i + 1);
     }
@@ -3144,12 +3155,19 @@ function rpParseText(text, places) {
   const iso = d => new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10);
   const dates = [];
   const wd = ['söndag','måndag','tisdag','onsdag','torsdag','fredag','lördag'];
-  const re = /(\d{4}-\d{2}-\d{2})|(\d{1,2})\/(\d{1,2})|(?:^|[^a-zåäö])(i ?dag|i ?morgon|i ?övermorgon|övermorgon)(?![a-zåäö])|(?:^|[^a-zåäö])(måndag|tisdag|onsdag|torsdag|fredag|lördag|söndag)(?![a-zåäö])/g;
+  // "1/3 av flaket" och "8/13,6 flm" är inte datum – kräver ordgräns runt dagen/månaden
+  const re = /(\d{4}-\d{2}-\d{2})|(?:^|[^\d\/,.])(\d{1,2})\/(\d{1,2})(?![\d\/,])(?!\s*av\s)|(?:^|[^a-zåäö])(i ?dag|i ?morgon|i ?övermorgon|övermorgon)(?![a-zåäö])|(?:^|[^a-zåäö])(måndag|tisdag|onsdag|torsdag|fredag|lördag|söndag)(?![a-zåäö])/g;
   let m;
   while ((m = re.exec(t)) !== null) {
     let d = null;
     if (m[1]) d = new Date(m[1] + 'T00:00:00');
-    else if (m[2]) { d = new Date(today.getFullYear(), parseInt(m[3])-1, parseInt(m[2])); if (d < today) d.setFullYear(d.getFullYear()+1); }
+    else if (m[2]) {
+      const day = parseInt(m[2]), mo = parseInt(m[3]);
+      if (mo < 1 || mo > 12 || day < 1 || day > 31) continue;
+      d = new Date(today.getFullYear(), mo-1, day);
+      if (d.getMonth() !== mo-1) continue; // t.ex. 31/2
+      if (d < today) d.setFullYear(d.getFullYear()+1);
+    }
     else if (m[4]) { const w = m[4].replace(' ', ''); d = new Date(today); d.setDate(today.getDate() + (w === 'idag' ? 0 : /över/.test(w) ? 2 : 1)); }
     else if (m[5]) { d = new Date(today); let diff = (wd.indexOf(m[5]) - today.getDay() + 7) % 7; if (diff === 0) diff = 7; d.setDate(today.getDate() + diff); }
     if (!d || isNaN(d)) continue;
@@ -3158,24 +3176,29 @@ function rpParseText(text, places) {
     dates.push(d);
   }
   dates.sort((a,b) => a-b);
-  const flm = (t.match(/(\d+(?:[.,]\d+)?)\s*(?:flm|ldm|flakmeter|lastmeter)/) || [])[1];
+  // "13,6 flm trailer, 8 flm ledigt" → ta det som är märkt ledigt, annars det minsta talet
+  const flmAll = [...t.matchAll(/(\d+(?:[.,]\d+)?)\s*(?:flm|ldm|flakmeter|lastmeter)\s*(ledig\w*|kvar|över|fritt|plats\w*)?/g)]
+    .map(x => ({ v: parseFloat(x[1].replace(',', '.')), led: !!x[2] })).filter(x => isFinite(x.v) && x.v > 0);
+  const flmPick = flmAll.find(x => x.led) || (flmAll.length ? flmAll.reduce((a, b) => b.v < a.v ? b : a) : null);
   const ton = (t.match(/(\d+(?:[.,]\d+)?)\s*(?:ton(?![a-zåäö])|t(?=[\s,;]|$))/) || [])[1];
   const kg = (t.match(/(\d{1,3}(?:[ .]\d{3})+|\d{3,6})\s*kg(?![a-zåäö])/) || [])[1]; // "1 500 kg", "24.000 kg", "500 kg"
-  let corridor = (t.match(/(?:omväg|omvag|avstickare)\D{0,12}?(\d{1,3})\s*km/) || [])[1]
-    || (t.match(/(\d{1,3})\s*km\s*(?:omväg|omvag|extra|avstickare|från vägen|från rutten|utanför)/) || [])[1];
-  const mil = (t.match(/(?:omväg|omvag)\D{0,12}?(\d{1,2})\s*mil(?![a-zåäö])/) || t.match(/(\d{1,2})\s*mil\s*(?:omväg|omvag|extra)/) || [])[1];
+  // Talet måste höra ihop med ordet omväg – [^\d,.] stoppar vid komma så "omväg, totalt 550 km" inte fångas
+  let corridor = (t.match(/(\d{1,3})\s*km\s*(?:omväg|omvag|extra|avstickare|från vägen|från rutten|utanför)/) || [])[1]
+    || (t.match(/(?:omväg|omvag|avstickare)[^\d,.]{0,12}?(\d{1,3})\s*km/) || [])[1];
+  const mil = (t.match(/(\d{1,2})\s*mil\s*(?:omväg|omvag|extra)/) || t.match(/(?:omväg|omvag)[^\d,.]{0,12}?(\d{1,2})\s*mil(?![a-zåäö])/) || [])[1];
   if (!corridor && mil) corridor = String(parseInt(mil) * 10);
   return {
     start: start?.display || null, end: end?.display || null, startWord, endWord,
     dateFrom: dates[0] ? iso(dates[0]) : null, dateTo: dates[1] ? iso(dates[1]) : (dates[0] ? iso(dates[0]) : null),
-    flm: flm ? parseFloat(flm.replace(',', '.')) : null,
+    flm: flmPick ? flmPick.v : null,
     weight: ton ? Math.round(parseFloat(ton.replace(',', '.')) * 1000) : (kg ? parseInt(kg.replace(/[ .]/g, '')) : null),
     corridor: corridor ? Math.min(150, Math.max(5, parseInt(corridor))) : null,
   };
 }
 
 // ---- Matchning + planbyggare ----
-const RP_KR_PER_KM = 28; // grov körkostnad kr/km – används för att väga omväg mot pris
+const RP_KR_PER_KM = 28;    // grov körkostnad kr/km – används för att väga omväg mot pris
+const RP_UNKNOWN_FLM = 2.4; // lass utan flm-uppgift räknas försiktigt som en pallbredd
 function rpBuildPlan(opts) {
   const { baseRoute, bookings, corridorKm, dateFrom, dateTo, freeFlm, maxWeight, uid, forced, excluded } = opts;
   const route = rpPrepareRoute(rpDownsample(baseRoute.coords, 1500));
@@ -3191,26 +3214,36 @@ function rpBuildPlan(opts) {
     const p = rpNearest(route, { lat: b.fromLat, lng: b.fromLng });
     const d = rpNearest(route, { lat: b.toLat, lng: b.toLng });
     const reasons = [];
-    const wrongDir = d.posKm <= p.posKm + 1;
+    const along = d.posKm - p.posKm;        // hur långt fram längs din rutt lasset tar dig
+    const wrongDir = along < -2;            // lossningen ligger bakåt på rutten
+    const atEnd = !wrongDir && along < 1 && p.posKm >= route.totalKm - 1;  // hela lasset ligger bortom målet
+    const atStart = !wrongDir && along < 1 && d.posKm <= 1;                // hela lasset ligger före startpunkten
     if (p.offKm > corr) reasons.push(`lastning ${ca}${Math.round(p.offKm)} km från vägen`);
     if (d.offKm > corr) reasons.push(`lossning ${ca}${Math.round(d.offKm)} km från vägen`);
     if (wrongDir) reasons.push('går åt fel håll');
+    else if (atEnd) reasons.push(`ligger efter ditt mål – sätt "Ska till" till ${b.toLocation} om du vill ta det`);
+    else if (atStart) reasons.push(`ligger före din startpunkt – sätt "Bilen står i" till ${b.fromLocation} om du vill ta det`);
     if (b.loadDate && dateFrom && b.loadDate < dateFrom) reasons.push(`lastas ${b.loadDate}, före ditt fönster`);
     if (b.loadDate && dateTo && b.loadDate > dateTo) reasons.push(`lastas ${b.loadDate}, efter ditt fönster`);
-    if (freeFlm && b.flm && b.flm > freeFlm) reasons.push(`${b.flm} flm > ledigt ${freeFlm}`);
+    if (freeFlm && b.flm != null && b.flm > freeFlm) reasons.push(`${b.flm} flm > ledigt ${freeFlm}`);
     if (maxWeight && b.weight && b.weight > maxWeight) reasons.push(`${Math.round(b.weight)} kg > max ${Math.round(maxWeight)}`);
-    const detourKm = 2 * (p.offKm + d.offKm);
-    const c = { b, pickPos: p.posKm, dropPos: d.posKm, pickOff: p.offKm, dropOff: d.offKm, detourKm, noForce: wrongDir,
+    // Omväg = ut till lastningen, fram till lossningen, tillbaka till vägen, minus ruttbiten du ändå hoppar över
+    const straight = rpHaversine({ lat: b.fromLat, lng: b.fromLng }, { lat: b.toLat, lng: b.toLng });
+    const detourKm = Math.max(0, p.offKm + straight + d.offKm - Math.max(0, along));
+    const c = { b, pickPos: p.posKm, dropPos: Math.max(d.posKm, p.posKm), pickOff: p.offKm, dropOff: d.offKm,
+      detourKm, noForce: wrongDir || atEnd || atStart,
       score: (b.price || 0) - RP_KR_PER_KM * detourKm + (b.price ? 0 : 400), reasons };
-    // "Fel håll" går inte att tvinga in – då skulle lossningen hamna före lastningen
-    if (wrongDir || (reasons.length && !forced.has(b.id))) { offRoute.push(c); continue; }
+    // Fel håll eller utanför sträckan går inte att tvinga in – då skulle stoppen hamna i orimlig ordning
+    if (c.noForce || (reasons.length && !forced.has(b.id))) { offRoute.push(c); continue; }
     cands.push(c);
   }
   // Tvingade först (användaren valde), sedan efter poäng
   cands.sort((a, b) => (forced.has(b.b.id) - forced.has(a.b.id)) || (b.score - a.score));
   const chosen = [], skipped = [];
-  // Last ombord vid position pos: lastat från pickPos (inkl.) till dropPos (exkl.) → lossning sker först vid samma punkt
-  const loadAt = (pos, extra) => { let s = 0; for (const o of chosen) if (o.pickPos <= pos && pos < o.dropPos) s += (o.b.flm || 0); if (extra && extra.pickPos <= pos && pos < extra.dropPos) s += (extra.b.flm || 0); return s; };
+  const flmOf = c => (c.b.flm != null && c.b.flm > 0 ? c.b.flm : RP_UNKNOWN_FLM); // okänd flm räknas försiktigt, inte som noll
+  const kgOf = c => (c.b.weight || 0);
+  // Ombord vid position pos: lastat från pickPos (inkl.) till dropPos (exkl.) → lossning sker först vid samma punkt
+  const sumAt = (pos, extra, val) => { let s = 0; for (const o of chosen) if (o.pickPos <= pos && pos < o.dropPos) s += val(o); if (extra && extra.pickPos <= pos && pos < extra.dropPos) s += val(extra); return s; };
   for (const c of cands) {
     if (excluded.has(c.b.id)) { skipped.push({ ...c, why: 'borttagen av dig' }); continue; }
     const isForced = forced.has(c.b.id);
@@ -3218,11 +3251,14 @@ function rpBuildPlan(opts) {
     if (!isForced && c.b.price && c.b.price < RP_KR_PER_KM * c.detourKm) {
       skipped.push({ ...c, why: `omvägen (~${Math.round(c.detourKm)} km ≈ ${fmtMoney(RP_KR_PER_KM * c.detourKm)}) kostar mer än lasset ger` }); continue;
     }
-    if (freeFlm) {
-      const pts = [c.pickPos, ...chosen.flatMap(o => [o.pickPos, o.dropPos]).filter(x => x >= c.pickPos && x < c.dropPos)];
-      const over = pts.some(x => loadAt(x, c) > freeFlm + 0.01);
-      if (over && !isForced) { skipped.push({ ...c, why: 'får inte plats samtidigt (flm)' }); continue; }
-    }
+    // Lastdatumen måste följa samma ordning som stoppen längs vägen, annars går turen inte att köra
+    const clash = c.b.loadDate && chosen.some(o => o.b.loadDate &&
+      ((o.pickPos < c.pickPos && o.b.loadDate > c.b.loadDate) || (o.pickPos > c.pickPos && o.b.loadDate < c.b.loadDate)));
+    if (clash && !isForced) { skipped.push({ ...c, why: 'lastdatumet krockar med ordningen längs vägen' }); continue; }
+    // Kapacitet: både flakmeter och vikt räknas över de lass som ligger på bilen samtidigt
+    const pts = [c.pickPos, ...chosen.flatMap(o => [o.pickPos, o.dropPos]).filter(x => x >= c.pickPos && x < c.dropPos)];
+    if (freeFlm && !isForced && pts.some(x => sumAt(x, c, flmOf) > freeFlm + 0.01)) { skipped.push({ ...c, why: 'får inte plats samtidigt (flm)' }); continue; }
+    if (maxWeight && !isForced && pts.some(x => sumAt(x, c, kgOf) > maxWeight + 1)) { skipped.push({ ...c, why: 'för tungt tillsammans med de andra lassen' }); continue; }
     chosen.push(c);
   }
   // Stopp i ordning längs rutten – vid samma punkt lossas först, sedan lastas (matchar kapacitetsräkningen)
@@ -3231,8 +3267,10 @@ function rpBuildPlan(opts) {
     events.push({ pos: c.pickPos, type: 'pick', c, lat: c.b.fromLat, lng: c.b.fromLng, name: c.b.fromLocation });
     events.push({ pos: c.dropPos, type: 'drop', c, lat: c.b.toLat, lng: c.b.toLng, name: c.b.toLocation });
   }
-  events.sort((a, b) => (a.pos - b.pos) || (a.type === b.type ? 0 : a.type === 'drop' ? -1 : 1));
-  return { chosen, skipped, offRoute, events, noCoords };
+  // Vid samma punkt: lossa först, lasta sedan – men för ett och samma lass kommer lastningen alltid först
+  events.sort((a, b) => (a.pos - b.pos) || (a.c === b.c ? (a.type === 'pick' ? -1 : 1) : (a.type === b.type ? 0 : a.type === 'drop' ? -1 : 1)));
+  const unknownFlm = chosen.filter(c => c.b.flm == null || c.b.flm <= 0).length;
+  return { chosen, skipped, offRoute, events, noCoords, unknownFlm };
 }
 
 let _rpMapInst = null; // en Leaflet-karta i taget – gamla tas bort när sidan besöks igen
@@ -3320,18 +3358,22 @@ route(/^\/planera$/, async (_m, u) => {
       const p = rpParseText($('rpText').value, rows);
       const filled = [], notes = [];
       // Ort som inte finns i ortlistan (t.ex. "Östergötland", "Kisa") → slå upp den
-      const lookup = async w => { try { return await rpGeocode(w); } catch { return null; } };
-      if (!p.start && p.startWord) { const g = await lookup(p.startWord); if (g) p.start = g.display; else notes.push(`förstod inte var bilen står ("${p.startWord}")`); }
-      if (!p.end && p.endWord) { const g = await lookup(p.endWord); if (g) p.end = g.display; else notes.push(`förstod inte målet ("${p.endWord}")`); }
+      // Skilj på "orten finns inte" och "uppslaget gick inte att göra" – annars döljs t.ex. utgången inloggning
+      const lookup = async w => { try { return { g: await rpGeocode(w) }; } catch (e) { return { err: e }; } };
+      if (!p.start && p.startWord) { const res = await lookup(p.startWord); if (res.g) p.start = res.g.display; else notes.push(res.err ? res.err.message : `förstod inte var bilen står ("${p.startWord}")`); }
+      if (!p.end && p.endWord) { const res = await lookup(p.endWord); if (res.g) p.end = res.g.display; else notes.push(res.err ? res.err.message : `förstod inte målet ("${p.endWord}")`); }
+      if (!document.getElementById('rpStart')) return; // användaren hann lämna sidan
       if (p.start) { $('rpStart').value = p.start; filled.push('start'); }
+      else if (!p.startWord) notes.push('förstod inte var bilen står');
       if (p.end) { $('rpEnd').value = p.end; filled.push('mål'); }
+      else if (!p.endWord) notes.push('förstod inte vart bilen ska');
       if (p.dateFrom) { $('rpFrom').value = p.dateFrom; filled.push('datum'); }
       if (p.dateTo) $('rpTo').value = p.dateTo;
       if (p.flm) { $('rpFlm').value = p.flm; filled.push('flm'); }
       if (p.weight) { $('rpWeight').value = p.weight; filled.push('vikt'); }
       if (p.corridor) { $('rpCorridor').value = p.corridor; filled.push('avstånd från vägen'); }
       const msg = filled.length ? `Fyllde i: ${filled.join(', ')}.` : 'Hittade ingen ort i texten — skriv t.ex. "bil i Helsingborg, ska till Stockholm".';
-      $('rpParseMsg').textContent = msg + (notes.length ? ` ${notes.join(', ')} – fyll i fältet själv.` : (filled.length ? ' Kontrollera och tryck Hitta lass.' : ''));
+      $('rpParseMsg').textContent = msg + (notes.length ? ` ${notes.join('; ')} – fyll i det fältet själv.` : (filled.length ? ' Kontrollera och tryck Hitta lass.' : ''));
       if (p.start && p.end) run();
     } finally { btn.disabled = false; }
   };
@@ -3355,6 +3397,7 @@ route(/^\/planera$/, async (_m, u) => {
     const f = readForm(); saveForm();
     if (!f.start || !f.end) { toast('Fyll i var bilen står och vart den ska', 'err'); return; }
     if (!f.flm) { toast('Ange ledig kapacitet i flm (t.ex. 13.6)', 'err'); $('rpFlm').focus(); return; }
+    if (f.from && f.to && f.from > f.to) { toast('Lastar senast måste vara samma dag eller senare än lastar tidigast', 'err'); $('rpTo').focus(); return; }
     busy = true; $('rpGo').disabled = true;
     $('rpStatus').innerHTML = `<div class="banner info">⏳ Slår upp orter och räknar rutt…</div>`;
     try {
@@ -3439,8 +3482,9 @@ route(/^\/planera$/, async (_m, u) => {
     const estWhy = planRoute.estimated ? planRoute.why : (base.estimated ? base.why : null);
     const est = estWhy ? ` <span class="muted" style="font-size:12px">(uppskattat: ${esc(estWhy)} – sträckor är fågelväg × 1,3 och avstånd från vägen ungefärliga)</span>` : '';
     const missing = plan.noCoords ? ` <span class="muted" style="font-size:12px">${plan.noCoords === 1 ? '1 öppet lass saknar' : `${plan.noCoords} öppna lass saknar`} kartposition och kunde inte placeras.</span>` : '';
+    const oklart = plan.unknownFlm ? ` <span class="muted" style="font-size:12px">⚠️ ${plan.unknownFlm === 1 ? "1 lass saknar" : `${plan.unknownFlm} lass saknar`} flm-uppgift, räknat som ${String(RP_UNKNOWN_FLM).replace(".", ",")} flm — stäm av med avsändaren.</span>` : "";
     $('rpStatus').innerHTML = plan.chosen.length
-      ? `<div class="banner ok">✅ Hittade <b>${plan.chosen.length}</b> lass som passar på vägen ${esc(S.display)} → ${esc(E.display)}${est}${missing}</div>`
+      ? `<div class="banner ok">✅ Hittade <b>${plan.chosen.length}</b> lass som passar på vägen ${esc(S.display)} → ${esc(E.display)}${est}${missing}${oklart}</div>`
       : `<div class="banner warn">Inga lass matchade just nu inom ${f.corridor} km från vägen och valt datumfönster. Prova större avstånd eller bredare datum.${est}${missing}</div>`;
     $('rpSummary').innerHTML = `
       <div class="stats" style="margin-top:14px">
@@ -3459,7 +3503,7 @@ route(/^\/planera$/, async (_m, u) => {
       plan.events.forEach((e, i) => {
         const b = e.c.b;
         const leg = planRoute.legs[legIdx++];
-        const details = [b.flm ? `${b.flm} flm` : '', b.pallets ? `${b.pallets} ppl` : '', b.weight ? `${Math.round(b.weight)} kg` : '', b.loadDate ? `lastas ${b.loadDate}` : '', b.adr ? 'ADR' : '', b.tailLift ? 'bakgavellift' : ''].filter(Boolean).join(' · ');
+        const details = [b.flm ? `${b.flm} flm` : '⚠️ flm okänd', b.pallets ? `${b.pallets} ppl` : '', b.weight ? `${Math.round(b.weight)} kg` : '', b.loadDate ? `lastas ${b.loadDate}` : '', b.adr ? 'ADR' : '', b.tailLift ? 'bakgavellift' : ''].filter(Boolean).join(' · ');
         stops.push({
           title: `${i + 1} · ${e.type === 'pick' ? 'Lasta i' : 'Lossa i'} ${esc(e.name)}`,
           sub: `${esc(b.fromLocation)} → ${esc(b.toLocation)}${details ? ' · ' + esc(details) : ''}`,
