@@ -1138,7 +1138,7 @@ async function cleanupOrphanedBookings() {
   localStorage.setItem('orphanCleanupDone', '1');
   if (removed > 0) console.log(`[cleanup] Tog bort ${removed} bokningar med ogiltig uppdragsgivare/åkare`);
 }
-const STATUS_LABEL = { open: 'Öppen', accepted: 'Accepterad', completed: 'Utförd' };
+const STATUS_LABEL = { open: 'Öppen', accepted: 'Accepterad', completed: 'Utförd', cancelled: 'Avbruten' };
 
 const COMMISSION_RATE = 0;
 const SHOW_COMMISSION_TO_USERS = false;
