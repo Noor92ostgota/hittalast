@@ -380,7 +380,17 @@ const db = {
     if (!id) return null;
     const { data, error } = await sb.from(t).select('*').eq('id', id).maybeSingle();
     if (error) { console.error('db.get', t, id, error); throw error; }
-    return data ? objToCamel(data) : null;
+    if (data) return objToCamel(data);
+    // Profiler: hela profilen (telefon, e-post, fakturauppgifter) syns bara för en själv, admin,
+    // motparten efter accept och mellan åkare och egna chaufförer. För övriga hämtas namn,
+    // företag och roll – det som visas på öppna körningar, i budlistor och i chatten.
+    if (t === 'profiles') {
+      const { data: pub, error: pubErr } = await sb.rpc('get_public_profiles', { p_ids: [id] });
+      if (pubErr) console.error('db.get public profile', id, pubErr);
+      const row = Array.isArray(pub) ? pub[0] : pub;
+      return row ? objToCamel(row) : null;
+    }
+    return null;
   },
   async byIndex(table, key, value) {
     const t = TABLE_MAP[table] || table;
@@ -4023,8 +4033,14 @@ route(/^\/free-vehicles$/, async (_m, u) => {
   active.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const users = {};
   const vehiclesById = {};
+  // Ägarnas namn, företag och kontaktuppgifter – den som publicerat en ledig bil vill bli kontaktad
+  const ownerIds = [...new Set(active.map(fv => fv.haulerId).filter(Boolean))];
+  if (ownerIds.length) {
+    const { data: owners, error: ownErr } = await sb.rpc('get_free_vehicle_owners', { p_ids: ownerIds });
+    if (ownErr) console.error('get_free_vehicle_owners', ownErr);
+    (owners || []).forEach(o => { users[o.id] = objToCamel(o); });
+  }
   for (const fv of active) {
-    if (!users[fv.haulerId]) users[fv.haulerId] = await db.get('users', fv.haulerId);
     if (fv.vehicleId && !vehiclesById[fv.vehicleId]) vehiclesById[fv.vehicleId] = await db.get('vehicles', fv.vehicleId);
   }
   mount(`
@@ -4997,10 +5013,25 @@ route(/^\/users$/, async (_m, u) => {
       const uid = btn.dataset.deluser;
       const target = users.find(u => u.id === uid);
       if (!target) return;
-      if (!confirm(`Radera användaren ${target.name} (${target.email}) permanent?\n\nDetta kan inte ångras. Bokningar och bud kopplade till användaren behålls men markeras som "borttagen användare".`)) return;
-      await db.del('users', uid);
-      toast(`Användare ${target.name} raderad`);
-      navigate('/users');
+      if (!confirm(`Radera användaren ${target.name} (${target.email}) permanent?\n\nDetta kan inte ångras. Personen kan inte längre logga in. Körningar som användaren lagt ut och användarens bud raderas också. Körningar som användaren utfört finns kvar men står utan åkare.`)) return;
+      btn.disabled = true;
+      try {
+        // Raderar själva inloggningen (och profilen) via edge-funktion – förut raderades bara profilen,
+        // så personen kunde logga in igen
+        const { data: { session } } = await sb.auth.getSession();
+        const r = await fetch(`${SUPABASE_URL}/functions/v1/admin-delete-user`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${session?.access_token || ''}` },
+          body: JSON.stringify({ user_id: uid }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || `fel ${r.status}`);
+        toast(`Användare ${target.name} raderad`);
+        navigate('/users');
+      } catch (err) {
+        btn.disabled = false;
+        toast('Kunde inte radera användaren: ' + (err.message || err), 'err');
+      }
     };
   });
 });
@@ -6069,13 +6100,9 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       btn.disabled = true; btn.textContent = '⏳ Accepterar...';
       try {
         if (!me || !me.id) { toast('Du måste vara inloggad', 'err'); return navigate('/login'); }
-        // Använd SECURITY DEFINER-funktion (kringgår RLS på UPDATE)
-        const { data, error } = await sb.rpc('accept_booking', { p_booking_id: b.id });
+        // Säker databasfunktion: accepterar, sätter provision och avslår övriga väntande bud
+        const { error } = await sb.rpc('accept_booking', { p_booking_id: b.id });
         if (error) throw error;
-        // Sätt commission via en separat UPDATE (nu är vi hauler så RLS tillåter)
-        if (b.price) {
-          await sb.from('bookings').update({ commission: commissionFor(b.price) }).eq('id', b.id);
-        }
         await notify(b.buyerId, { type:'accepted', bookingId: b.id, message: `${me.name} har accepterat din körning ${b.fromLocation} → ${b.toLocation}.` });
         toast('✅ Uppdrag accepterat. Kontaktuppgifter visas nu.');
         navigate('/booking/' + b.id);
@@ -6120,26 +6147,14 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
     acceptCounterBtn.onclick = async () => {
       try {
         if (!me || !me.id) { toast('Du måste vara inloggad', 'err'); return navigate('/login'); }
-        const bid = await db.get('bids', acceptCounterBtn.dataset.bid);
-        if (!bid) { toast('Budet hittas inte', 'err'); return; }
-        const amount = latestBidAmount(bid);
-        const fresh = await db.get('bookings', b.id);
-        if (!fresh || fresh.status !== 'open') { toast('Körningen är inte längre öppen', 'err'); return navigate('/'); }
-        fresh.status = 'accepted'; fresh.haulerId = me.id;
-        fresh.price = amount;
-        fresh.acceptedAt = Date.now();
-        fresh.commission = commissionFor(amount);
-        fresh.contactVisible = true;
-        await db.put('bookings', fresh);
-        bid.status = 'accepted';
-        await db.put('bids', bid);
-        const others = await bidsForBooking(b.id);
-        for (const o of others) {
-          if (o.id !== bid.id && o.status === 'pending') {
-            o.status = 'rejected';
-            await db.put('bids', o);
-            await notify(o.haulerId, { type:'bid_rejected', bookingId: b.id, message: `Ditt bud på ${b.fromLocation} → ${b.toLocation} avslogs (uppdraget gick till annan åkare).` });
-          }
+        // Säker databasfunktion: kontrollerar att det är ditt bud och köparens motbud,
+        // accepterar körningen till motbudets pris och avslår övriga bud – allt på en gång.
+        // (Förut gjordes det med direkta uppdateringar som databasen nekade för vanliga åkare.)
+        const { data: res, error } = await sb.rpc('accept_counter_offer', { p_bid_id: acceptCounterBtn.dataset.bid });
+        if (error) throw error;
+        const amount = Number(res?.amount) || 0;
+        for (const hid of (res?.rejected_hauler_ids || [])) {
+          await notify(hid, { type:'bid_rejected', bookingId: b.id, message: `Ditt bud på ${b.fromLocation} → ${b.toLocation} avslogs (uppdraget gick till annan åkare).` });
         }
         await notify(b.buyerId, { type:'accepted', bookingId: b.id, message: `${me.name} accepterade ditt motbud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation}.` });
         toast('Motbud accepterat. Kontaktuppgifter visas nu.');
@@ -6185,30 +6200,23 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
   // Buyer-actions: acceptera bud / motbud / avslå
   document.querySelectorAll('button[data-acceptbid]').forEach(btn => {
     btn.onclick = async () => {
-      const bid = await db.get('bids', btn.dataset.acceptbid);
-      const amount = latestBidAmount(bid);
-      const fresh = await db.get('bookings', b.id);
-      if (fresh.status !== 'open') { toast('Körningen är inte längre öppen', 'err'); return navigate('/'); }
-      fresh.status = 'accepted';
-      fresh.haulerId = bid.haulerId;
-      fresh.price = amount;
-      fresh.acceptedAt = Date.now();
-      fresh.commission = commissionFor(amount);
-      fresh.contactVisible = true;
-      await db.put('bookings', fresh);
-      bid.status = 'accepted';
-      await db.put('bids', bid);
-      const all = await bidsForBooking(b.id);
-      for (const o of all) {
-        if (o.id !== bid.id && o.status === 'pending') {
-          o.status = 'rejected';
-          await db.put('bids', o);
-          await notify(o.haulerId, { type:'bid_rejected', bookingId: b.id, message: `Ditt bud på ${b.fromLocation} → ${b.toLocation} avslogs (uppdraget gick till annan åkare).` });
+      btn.disabled = true;
+      try {
+        // Säker databasfunktion: accepterar budet till dess senaste belopp och avslår övriga bud
+        const { data: res, error } = await sb.rpc('accept_bid', { p_bid_id: btn.dataset.acceptbid });
+        if (error) throw error;
+        const amount = Number(res?.amount) || 0;
+        for (const hid of (res?.rejected_hauler_ids || [])) {
+          await notify(hid, { type:'bid_rejected', bookingId: b.id, message: `Ditt bud på ${b.fromLocation} → ${b.toLocation} avslogs (uppdraget gick till annan åkare).` });
         }
+        await notify(res.hauler_id, { type:'bid_accepted', bookingId: b.id, message: `Ditt bud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation} accepterades. Kontaktuppgifter är nu synliga.` });
+        toast('Bud accepterat — körningen tilldelad');
+        navigate('/booking/' + b.id);
+      } catch (err) {
+        console.error('Accept-bud-fel:', err);
+        btn.disabled = false;
+        toast('Kunde inte acceptera budet: ' + (err.message || err), 'err');
       }
-      await notify(bid.haulerId, { type:'bid_accepted', bookingId: b.id, message: `Ditt bud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation} accepterades. Kontaktuppgifter är nu synliga.` });
-      toast('Bud accepterat — körningen tilldelad');
-      navigate('/booking/' + b.id);
     };
   });
   document.querySelectorAll('button[data-counterbid]').forEach(btn => {
@@ -6420,12 +6428,14 @@ async function renderChat(b, buyer, hauler, me, ctx) {
       const hid = m.haulerId;
       (byHauler[hid] = byHauler[hid] || []).push(m);
     });
-    const haulerIds = Object.keys(byHauler).map(Number);
+    // id:n är UUID-strängar (förut .map(Number), som gav NaN och kraschade bokningssidan)
+    const haulerIds = Object.keys(byHauler);
     if (haulerIds.length === 0) {
       area.innerHTML = `<div class="muted">Inga åkare har kontaktat dig om denna körning ännu.</div>`;
       return;
     }
-    const haulers = await Promise.all(haulerIds.map(id => db.get('users', id)));
+    const haulers = (await Promise.all(haulerIds.map(id => db.get('users', id))))
+      .map((h, i) => h || { id: haulerIds[i], name: 'Borttagen användare', company: '' });
     const dealClosed = b.status !== 'open';
     area.innerHTML = `
       <div class="chat-thread-list" id="thread-list">
