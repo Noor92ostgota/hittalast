@@ -767,38 +767,41 @@ async function login(email, pwd) {
   return _sessionUser;
 }
 
+// Alla profiluppgifter skickas med när kontot skapas och sparas av databastriggern handle_new_user.
+// (Förut skrevs de i ett separat anrop efteråt – det nekades eftersom man inte är inloggad
+// förrän e-posten är bekräftad, så telefon, företag och fakturauppgifter försvann.)
+// Rollen bestäms ALDRIG härifrån: nya konton blir alltid åkare.
 async function register(data) {
   const email = (data.email || '').toLowerCase().trim();
-  const { data: result, error } = await sb.auth.signUp({
-    email,
-    password: data.pwd,
-    options: { data: { name: data.name || '', role: data.role || 'akare' } }
-  });
+  const s = v => (v || '').toString().trim();
+  const meta = {
+    name: s(data.name), phone: s(data.phone), company: s(data.company), org_nr: s(data.orgNr),
+    address: s(data.address), contact_person: s(data.contactPerson),
+    invoice_recipient: s(data.invoiceRecipient), invoice_address: s(data.invoiceAddress),
+    invoice_email: s(data.invoiceEmail), invoice_gln: s(data.invoiceGln), invoice_reference: s(data.invoiceReference),
+    offices: Array.isArray(data.offices) ? data.offices : [],
+  };
+  if (data.launchToken) meta.launch_token = data.launchToken; // väntelistraden markeras som använd i databasen
+  const { data: result, error } = await sb.auth.signUp({ email, password: data.pwd, options: { data: meta } });
   if (error) {
     if (/already|registered/i.test(error.message)) throw new Error('E-post finns redan registrerad');
     throw error;
   }
-  // Vänta så triggern hinner skapa profilen, uppdatera sedan
-  await new Promise(r => setTimeout(r, 700));
-  if (result.user) {
-    await sb.from('profiles').update({
-      role: data.role || 'akare',
-      name: (data.name || '').trim(),
-      phone: (data.phone || '').trim(),
-      company: (data.company || '').trim(),
-      org_nr: (data.orgNr || '').trim(),
-      address: (data.address || '').trim(),
-      contact_person: (data.contactPerson || '').trim(),
-      invoice_recipient: (data.invoiceRecipient || '').trim(),
-      invoice_address: (data.invoiceAddress || '').trim(),
-      invoice_email: (data.invoiceEmail || '').trim(),
-      invoice_gln: (data.invoiceGln || '').trim(),
-      invoice_reference: (data.invoiceReference || '').trim(),
-      offices: data.offices || [],
-    }).eq('id', result.user.id);
-  }
+  // Supabase skickar ett bekräftelsemejl – ingen inloggning förrän man klickat på länken i det
+  if (!result.session) return { user: null, needsConfirmation: true, email };
   await refreshSession();
-  return _sessionUser;
+  return { user: _sessionUser, needsConfirmation: false, email };
+}
+
+function showCheckEmail(email) {
+  document.getElementById('app').innerHTML = `
+    <div class="auth-wrap"><div class="card" style="text-align:center">
+      <div style="font-size:44px;line-height:1">📬</div>
+      <h2>Bekräfta din e-post</h2>
+      <p>Vi har skickat ett mejl till <b>${esc(email)}</b>.<br>Klicka på länken i mejlet för att aktivera ditt konto, sedan är du inloggad.</p>
+      <p class="muted" style="font-size:13px">Hittar du inte mejlet? Titta i skräpposten. Det kommer från hittalast.se.</p>
+      <div style="margin-top:20px"><a class="btn secondary" href="#/login">Till inloggningen</a></div>
+    </div></div>`;
 }
 
 async function supabaseLogout() {
@@ -1101,6 +1104,11 @@ function canSeeCommission(u) { return false; }
 // 16-30+ bilar: 2 495 kr / mån
 const VAT_RATE = 0.25;
 const TRIAL_DAYS = 14;
+// ============== LANSERING — 30 november 2026 06:00 svensk tid ==============
+// Styr landningssidan (väntelista före, registrering efter) och när provperioder börjar räknas.
+// Lanseringsmejlet skickas av pg_cron-jobbet send-launch-emails-30nov i databasen – flytta det också om datumet ändras.
+const LAUNCH_DATE = new Date('2026-11-30T06:00:00+01:00'); // vintertid (CET) i november
+function isLaunched() { return Date.now() >= LAUNCH_DATE.getTime(); }
 const DEFAULT_PRICING_TIERS = [
   { min: 1,  max: 5,  price: 995  },
   { min: 6,  max: 15, price: 1995 },
@@ -1151,7 +1159,8 @@ function trialEndsAt(user) {
   if (!user || !user.createdAt) return 0;
   const ms = typeof user.createdAt === 'number' ? user.createdAt : new Date(user.createdAt).getTime();
   if (isNaN(ms)) return 0;
-  return ms + TRIAL_DAYS * 86400000;
+  // Provperioden börjar tidigast vid lanseringen – den som registrerar sig innan får sina 14 dagar från öppningsdagen
+  return Math.max(ms, LAUNCH_DATE.getTime()) + TRIAL_DAYS * 86400000;
 }
 function trialDaysLeft(user) {
   const end = trialEndsAt(user);
@@ -1892,7 +1901,9 @@ route(/^\/register$/, async () => {
       offices: (f.get('offices') || '').split('\n').map(s => s.trim()).filter(Boolean),
     };
     try {
-      await register(data);
+      const res = await register(data);
+      if (res.needsConfirmation) return showCheckEmail(res.email);
+      toast('Välkommen till hittalast.se! 🎉');
       navigate('/');
     } catch (err) { toast(err.message, 'err'); }
   };
@@ -1937,18 +1948,13 @@ function renderSignupForm(prefilled, fromToken) {
     btn.textContent = '⏳ Skapar konto...';
     try {
       const data = {
-        email: f.get('email'), pwd: f.get('pwd'), role: 'akare',
+        email: f.get('email'), pwd: f.get('pwd'),
         name: f.get('name'), phone: f.get('phone'), company: f.get('company'),
-        orgNr: f.get('orgNr') || '',
+        orgNr: f.get('orgNr') || '', contactPerson: f.get('name') || '',
+        launchToken: fromToken || null,
       };
-      await register(data);
-      // Markera waitlist-raden som consumed om token finns
-      if (fromToken && _sessionUser?.id) {
-        await sb.from('waitlist').update({
-          consumed_at: new Date().toISOString(),
-          consumed_profile_id: _sessionUser.id,
-        }).eq('magic_token', fromToken);
-      }
+      const res = await register(data);
+      if (res.needsConfirmation) return showCheckEmail(res.email);
       toast('Välkommen till hittalast.se! 🎉');
       navigate('/');
     } catch (err) {
@@ -1967,7 +1973,10 @@ route(/^\/launch\/([a-f0-9]+)$/, async (m) => {
   const token = m[1];
   document.getElementById('app').innerHTML = '<div class="auth-wrap"><div class="card"><div style="text-align:center;padding:40px;color:#6b7280">⏳ Verifierar inbjudningslänk...</div></div></div>';
   try {
-    const { data: row, error } = await sb.from('waitlist').select('*').eq('magic_token', token).maybeSingle();
+    // Utloggade får inte läsa väntelistan – databasfunktionen lämnar ut just den här raden mot länkkoden
+    const { data: rows, error } = await sb.rpc('get_waitlist_by_token', { p_token: token });
+    const row = Array.isArray(rows) ? rows[0] : rows;
+    if (error) console.error('Lanseringslänk:', error);
     if (error || !row) {
       document.getElementById('app').innerHTML = `
         <div class="auth-wrap"><div class="card">
@@ -1977,7 +1986,7 @@ route(/^\/launch\/([a-f0-9]+)$/, async (m) => {
         </div></div>`;
       return;
     }
-    if (row.consumed_at) {
+    if (row.consumed) {
       document.getElementById('app').innerHTML = `
         <div class="auth-wrap"><div class="card">
           <h2>Länken har redan använts</h2>
@@ -2255,9 +2264,7 @@ route(/^\/$/, async (_m, u) => {
 });
 
 // --------- Publik vy (utan inlogg) ---------
-// ============== LANDNINGSSIDA — låst tills 30 november 2026 06:00 ==============
-const LAUNCH_DATE = new Date('2026-11-30T06:00:00+01:00'); // vintertid (CET) i november
-function isLaunched() { return Date.now() >= LAUNCH_DATE.getTime(); }
+// ============== LANDNINGSSIDA — låst tills LAUNCH_DATE (definieras bredvid TRIAL_DAYS) ==============
 
 async function publicDashboard() {
   const app = document.getElementById('app');
@@ -4980,7 +4987,7 @@ function userForm(target) {
     ? (typeof t.createdAt === 'number' ? t.createdAt : new Date(t.createdAt).getTime())
     : null;
   const trialEndIso = (createdAtMs && !isNaN(createdAtMs))
-    ? new Date(createdAtMs + TRIAL_DAYS * 86400000).toISOString().slice(0,10)
+    ? new Date(trialEndsAt({ createdAt: createdAtMs })).toISOString().slice(0,10)
     : '';
   return `
     <div class="card">
@@ -5018,7 +5025,7 @@ function userForm(target) {
           <label for="subActive" style="margin:0">Prenumerationen är aktiv (betalande)</label>
         </div>
         <div class="row">
-          <div class="field"><label>Provperiod slutar (datum)</label><input name="trialEndDate" type="date" value="${trialEndIso}"></div>
+          <div class="field"><label>Provperiod slutar (datum)</label><input name="trialEndDate" type="date" value="${trialEndIso}" data-orig="${trialEndIso}">${isLaunched() ? '' : `<div class="muted" style="font-size:12px;margin-top:4px">Före lansering börjar provperioden räknas ${LAUNCH_DATE.toLocaleDateString('sv-SE', { day: 'numeric', month: 'long' })}</div>`}</div>
           <div class="field"><label>Manuell månadsavgift (kr exkl moms, lämna tomt = auto baserat på antal bilar)</label><input name="manualMonthlyFee" type="number" min="0" step="1" value="${t.manualMonthlyFee != null ? esc(t.manualMonthlyFee) : ''}"></div>
         </div>
 
@@ -5054,8 +5061,11 @@ function bindUserForm(target) {
       data.manualMonthlyFee = (customPrice && Number(customPrice) > 0) ? Number(customPrice) : null;
 
       // Trial end: räkna tillbaka till createdAt så befintliga helpers fungerar
+      // Skriv bara om createdAt när admin faktiskt ändrat datumet – annars skulle registreringsdagen
+      // tyst skrivas om vid varje sparning (provperioden räknas tidigast från lanseringen, se trialEndsAt)
       const trialEndDate = f.get('trialEndDate');
-      if (trialEndDate) {
+      const trialOrig = e.target.querySelector('[name="trialEndDate"]')?.dataset.orig || '';
+      if (trialEndDate && trialEndDate !== trialOrig) {
         data.createdAt = new Date(trialEndDate).getTime() - TRIAL_DAYS * 86400000;
       }
 
@@ -5085,6 +5095,11 @@ function bindUserForm(target) {
           }
           return;
         }
+        // Rollen får bara sättas av admin: se till att det är admin-sessionen som gör profiluppdateringen,
+        // även om signUp skulle ha bytt session (databasen ignorerar annars rolländringen)
+        if (adminSession && signupResult.session) {
+          await sb.auth.setSession({ access_token: adminSession.access_token, refresh_token: adminSession.refresh_token });
+        }
         // Vänta så triggern hinner skapa profil-raden
         await new Promise(r => setTimeout(r, 800));
 
@@ -5103,7 +5118,10 @@ function bindUserForm(target) {
             created_at: new Date(data.createdAt).toISOString(),
           };
           const { error: updateError } = await sb.from('profiles').update(profileUpdate).eq('id', signupResult.user.id);
-          if (updateError) console.error('Profil-update efter signUp', updateError);
+          if (updateError) {
+            console.error('Profil-update efter signUp', updateError);
+            toast('Kontot skapades men roll/uppgifter kunde inte sparas: ' + updateError.message + '. Öppna användaren och spara igen.', 'err');
+          }
         }
 
         // Återställ admin-sessionen (signUp byter ut den)
