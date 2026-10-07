@@ -1303,6 +1303,28 @@ function blobToUrl(blobOrUrl) {
   return null;
 }
 
+// Fraktsedlar ligger i en privat bucket – den sparade "publika" länken fungerar inte i <img>.
+// Hämta en tidsbegränsad länk (databasen släpper bara igenom körningens parter och admin).
+async function hydrateProofImages(root = document) {
+  for (const img of root.querySelectorAll('img[data-proof-src]')) {
+    const url = img.dataset.proofSrc;
+    img.removeAttribute('data-proof-src');
+    const m = url.match(/\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/?]+)\/([^?]+)/);
+    if (m && m[1] === 'proof-images') {
+      try {
+        const { data, error } = await sb.storage.from('proof-images').createSignedUrl(decodeURIComponent(m[2]), 3600);
+        if (error || !data?.signedUrl) throw error || new Error('ingen länk');
+        img.src = data.signedUrl;
+      } catch (err) {
+        console.warn('Fraktsedel kunde inte visas', err?.message || err);
+        img.alt = 'Fraktsedeln kunde inte visas';
+      }
+    } else {
+      img.src = url;
+    }
+  }
+}
+
 // --------- Router (hash-baserad) ---------
 const routes = [];
 function route(pattern, handler) { routes.push({ pattern, handler }); }
@@ -2372,7 +2394,7 @@ async function publicDashboard() {
         <p class="lead">Var bland de första att få inbjudan när vi öppnar 30 november. Ingen förpliktelse, du kan avregistrera dig när som helst.</p>
         <form id="waitlist-form">
           <label>E-postadress *</label>
-          <input type="email" name="email" required autocomplete="email">
+          <input type="email" name="email" required autocomplete="email" maxlength="254" pattern="[^@\\s]+@[^@\\s]+\\.[A-Za-z]{2,}" title="Ange en e-postadress, till exempel namn@foretag.se">
 
           <label>För- och efternamn</label>
           <input type="text" name="name" autocomplete="name">
@@ -2512,6 +2534,12 @@ async function publicDashboard() {
         if (/duplicate|unique/i.test(error.message)) {
           throw new Error('Den här e-postadressen står redan på listan. Du hör av oss vid lansering!');
         }
+        if (error.code === '23514' || /check constraint/i.test(error.message)) {
+          throw new Error('Kontrollera e-postadressen (till exempel namn@foretag.se) och att fälten inte är för långa.');
+        }
+        if (error.code === '54000' || /många anmälningar/i.test(error.message)) {
+          throw new Error('Många anmälningar just nu. Försök igen om några minuter.');
+        }
         throw error;
       }
 
@@ -2633,7 +2661,7 @@ route(/^\/mine\/(open|active|completed|earned)$/, async (m, u) => {
     list = allMine.filter(b => b.status === 'open');
     title = '📂 Mina öppna körningar';
     helper = 'Körningar du publicerat och som väntar på åkare.';
-    list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()); // ISO-strängar från databasen
   } else if (filter === 'active') {
     const myPending = allMine.filter(b => b.status === 'accepted');
     const accPending = accepted.filter(b => b.status === 'accepted');
@@ -4038,7 +4066,7 @@ route(/^\/free-vehicles$/, async (_m, u) => {
   if (!u || u.role === 'chauffor') return navigate('/');
   const all = await db.all('freeVehicles');
   const active = all.filter(x => x.status !== 'archived');
-  active.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  active.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()); // ISO-strängar från databasen
   const users = {};
   const vehiclesById = {};
   // Ägarnas namn, företag och kontaktuppgifter – den som publicerat en ledig bil vill bli kontaktad
@@ -6027,7 +6055,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
           ${b.completedAt ? `<dt>Utförd</dt><dd>${fmtDate(b.completedAt)}</dd>` : ''}
         </dl>
         ${bookingImgUrl ? `<h3 style="margin-top:12px">Bild på bokning</h3><img src="${bookingImgUrl}" class="thumb">` : ''}
-        ${proofImgUrl ? `<h3 style="margin-top:12px">Fraktsedel</h3><img src="${proofImgUrl}" class="thumb">` : ''}
+        ${proofImgUrl ? `<h3 style="margin-top:12px">Fraktsedel</h3><img data-proof-src="${esc(proofImgUrl)}" class="thumb" alt="Fraktsedel">` : ''}
         ${b.status === 'completed' && (isBuyer || isAssignedHauler || isAdmin) ? `<div class="btn-row" style="margin-top:14px"><button id="invoicePdfBtn" class="secondary">📄 Hämta fakturaunderlag (PDF)</button></div>` : ''}
       </div>
       <div class="card">
@@ -6063,6 +6091,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       <div id="chat-area"></div>
     </div>`}
   `);
+  hydrateProofImages();
 
   if (document.getElementById('assignBtn')) {
     document.getElementById('assignBtn').onclick = async () => {
