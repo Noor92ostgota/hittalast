@@ -447,10 +447,13 @@ const db = {
 };
 
 // --------- Bilduppladdning till Supabase Storage ---------
-async function uploadImage(file, bucket = 'booking-images') {
+// folder: fraktsedlar läggs under körningens id (proof-images/<booking_id>/...) – databasen släpper
+// bara igenom uppladdning från åkaren/chauffören på just den körningen
+async function uploadImage(file, bucket = 'booking-images', folder = '') {
   if (!file || !file.name || !file.size) return null;
-  const ext = (file.name.split('.').pop() || 'png').toLowerCase();
-  const path = `${(crypto.randomUUID && crypto.randomUUID()) || Date.now() + '-' + Math.random().toString(36).slice(2)}.${ext}`;
+  const ext = ((file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png').slice(0, 5);
+  const base = `${(crypto.randomUUID && crypto.randomUUID()) || Date.now() + '-' + Math.random().toString(36).slice(2)}.${ext}`;
+  const path = folder ? `${folder}/${base}` : base;
   const { error } = await sb.storage.from(bucket).upload(path, file, { contentType: file.type || 'image/png' });
   if (error) { console.error('uploadImage', error); throw error; }
   const { data } = sb.storage.from(bucket).getPublicUrl(path);
@@ -863,6 +866,7 @@ async function cleanupOrphanedBookings() { /* RLS + FK cascade hanterar */ }
 const ROLE_LABEL = {
   akare: 'Åkare',
   chauffor: 'Chaufför',
+  speditor: 'Speditör',
   admin: 'Admin',
 };
 // Inloggade användare som både kan publicera och acceptera körningar
@@ -873,14 +877,18 @@ async function notify(userId, payload) {
   if (!userId) return;
   // Aldrig låt notify krascha huvudflödet — RLS-fel ska inte stoppa Slutför etc.
   try {
-    return await db.add('notifications', {
-      userId,
-      type: payload.type,
-      bookingId: payload.bookingId || null,
-      bidId: payload.bidId || null,
-      message: payload.message,
-      read: false,
+    // Via databasfunktion som kräver att du och mottagaren är parter på samma körning.
+    // (Förut lästes raden tillbaka efter insättning, vilket läsregeln nekade – aviseringar
+    // till andra sparades därför aldrig, och vem som helst kunde avisera vem som helst.)
+    const { error } = await sb.rpc('send_notification', {
+      p_user_id: userId,
+      p_type: payload.type || 'info',
+      p_booking_id: payload.bookingId || null,
+      p_bid_id: payload.bidId || null,
+      p_message: payload.message || '',
     });
+    if (error) throw error;
+    return true;
   } catch (err) {
     console.warn('notify() fel (ignoreras):', err?.message || err);
     return null;
@@ -4040,8 +4048,12 @@ route(/^\/free-vehicles$/, async (_m, u) => {
     if (ownErr) console.error('get_free_vehicle_owners', ownErr);
     (owners || []).forEach(o => { users[o.id] = objToCamel(o); });
   }
-  for (const fv of active) {
-    if (fv.vehicleId && !vehiclesById[fv.vehicleId]) vehiclesById[fv.vehicleId] = await db.get('vehicles', fv.vehicleId);
+  // Fordonen (reg.nr, modell) – andra åkares bilar får inte läsas direkt, bara de som är publicerade som lediga
+  const vehIds = [...new Set(active.map(fv => fv.vehicleId).filter(Boolean))];
+  if (vehIds.length) {
+    const { data: vehs, error: vehErr } = await sb.rpc('get_free_vehicle_details', { p_ids: vehIds });
+    if (vehErr) console.error('get_free_vehicle_details', vehErr);
+    (vehs || []).forEach(v => { vehiclesById[v.id] = objToCamel(v); });
   }
   mount(`
     <h2>🚚 Lediga bilar (${active.length})</h2>
@@ -4171,11 +4183,11 @@ function bindFreeVehicleForm(u, fv) {
     const data = {
       haulerId: fv ? fv.haulerId : u.id,
       currentLocation: (f.get('currentLocation') || '').trim(),
-      availableFrom: f.get('availableFrom') || '',
-      availableTime: f.get('availableTime') || '',
+      availableFrom: f.get('availableFrom') || null,
+      availableTime: f.get('availableTime') || null,
       anywhere,
       destination: anywhere ? '' : destination,
-      vehicleId: f.get('vehicleId') ? Number(f.get('vehicleId')) : null,
+      vehicleId: f.get('vehicleId') || null, // UUID-sträng (förut Number(), som gav NaN och tappade bilen)
       freeFlm: f.get('freeFlm') ? Number(f.get('freeFlm')) : null,
       adr: !!f.get('adr'),
       tailLift: !!f.get('tailLift'),
@@ -4186,9 +4198,14 @@ function bindFreeVehicleForm(u, fv) {
       createdAt: fv ? fv.createdAt : Date.now(),
       updatedAt: Date.now(),
     };
-    if (fv) { data.id = fv.id; await db.put('freeVehicles', data); toast('Sparad'); }
-    else { await db.add('freeVehicles', data); toast('Publicerad'); }
-    navigate('/free-vehicles');
+    try {
+      if (fv) { data.id = fv.id; await db.put('freeVehicles', data); toast('Sparad'); }
+      else { await db.add('freeVehicles', data); toast('Publicerad'); }
+      navigate('/free-vehicles');
+    } catch (err) {
+      console.error('Ledig bil', err);
+      toast('Kunde inte spara: ' + (err.message || err), 'err');
+    }
   };
 }
 
@@ -5013,7 +5030,7 @@ route(/^\/users$/, async (_m, u) => {
       const uid = btn.dataset.deluser;
       const target = users.find(u => u.id === uid);
       if (!target) return;
-      if (!confirm(`Radera användaren ${target.name} (${target.email}) permanent?\n\nDetta kan inte ångras. Personen kan inte längre logga in. Körningar som användaren lagt ut och användarens bud raderas också. Körningar som användaren utfört finns kvar men står utan åkare.`)) return;
+      if (!confirm(`Radera användaren ${target.name} (${target.email}) permanent?\n\nDetta kan inte ångras. Personen kan inte längre logga in. Körningar som användaren lagt ut och användarens bud raderas också. Pågående uppdrag där användaren är åkare öppnas igen för nya bud (köparen aviseras). Utförda körningar finns kvar men står utan åkare.`)) return;
       btn.disabled = true;
       try {
         // Raderar själva inloggningen (och profilen) via edge-funktion – förut raderades bara profilen,
@@ -5078,6 +5095,7 @@ function userForm(target) {
             <select name="role" required>
               <option value="akare" ${t.role==='akare'?'selected':''}>Åkare</option>
               <option value="chauffor" ${t.role==='chauffor'?'selected':''}>Chaufför</option>
+              <option value="speditor" ${t.role==='speditor'?'selected':''}>Speditör</option>
               <option value="admin" ${t.role==='admin'?'selected':''}>Admin</option>
             </select>
           </div>
@@ -5818,7 +5836,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       if (lastBy === 'buyer') {
         actions = `
           <div class="banner info"><b>Motbud från uppdragsgivaren:</b> ${fmtMoney(last)}</div>
-          <button id="acceptCounterBtn" class="ok" data-bid="${myBid.id}">✓ Acceptera ${fmtMoney(last)}</button>
+          <button id="acceptCounterBtn" class="ok" data-bid="${myBid.id}" data-amount="${esc(last)}">✓ Acceptera ${fmtMoney(last)}</button>
           <div class="field bid-field" style="margin-top:8px"><label>Eller lägg ett nytt motbud (kr)</label>
             <input type="number" id="newCounter" min="1" step="1"></div>
           <button id="counterBackBtn" class="secondary" data-bid="${myBid.id}">↩ Skicka motbud</button>
@@ -5912,7 +5930,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
               <td>${esc(statusLabel)}</td>
               <td class="muted" style="font-size:12px">${esc(history)}</td>
               <td>${canAct ? `
-                <button class="ok" data-acceptbid="${bd.id}">✓ Acceptera ${fmtMoney(last)}</button>
+                <button class="ok" data-acceptbid="${bd.id}" data-amount="${esc(last)}">✓ Acceptera ${fmtMoney(last)}</button>
                 <input type="number" min="1" step="1" data-counter-input="${bd.id}" placeholder="Motbud" class="counter-inp">
                 <button class="secondary" data-counterbid="${bd.id}">↩ Motbud</button>
                 <button class="danger" data-rejectbid="${bd.id}">Avslå</button>` : ''}</td>
@@ -6101,7 +6119,8 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       try {
         if (!me || !me.id) { toast('Du måste vara inloggad', 'err'); return navigate('/login'); }
         // Säker databasfunktion: accepterar, sätter provision och avslår övriga väntande bud
-        const { error } = await sb.rpc('accept_booking', { p_booking_id: b.id });
+        // Priset som visades på knappen skickas med – ändras det under tiden nekas accepten
+        const { error } = await sb.rpc('accept_booking', { p_booking_id: b.id, p_expected_price: b.price ?? null });
         if (error) throw error;
         await notify(b.buyerId, { type:'accepted', bookingId: b.id, message: `${me.name} har accepterat din körning ${b.fromLocation} → ${b.toLocation}.` });
         toast('✅ Uppdrag accepterat. Kontaktuppgifter visas nu.');
@@ -6150,12 +6169,13 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         // Säker databasfunktion: kontrollerar att det är ditt bud och köparens motbud,
         // accepterar körningen till motbudets pris och avslår övriga bud – allt på en gång.
         // (Förut gjordes det med direkta uppdateringar som databasen nekade för vanliga åkare.)
-        const { data: res, error } = await sb.rpc('accept_counter_offer', { p_bid_id: acceptCounterBtn.dataset.bid });
+        // Beloppet som visades på knappen skickas med. Avslagna budgivare aviseras av databasen.
+        const shown = Number(acceptCounterBtn.dataset.amount);
+        const { data: res, error } = await sb.rpc('accept_counter_offer', {
+          p_bid_id: acceptCounterBtn.dataset.bid, p_expected_amount: isFinite(shown) && shown > 0 ? shown : null,
+        });
         if (error) throw error;
         const amount = Number(res?.amount) || 0;
-        for (const hid of (res?.rejected_hauler_ids || [])) {
-          await notify(hid, { type:'bid_rejected', bookingId: b.id, message: `Ditt bud på ${b.fromLocation} → ${b.toLocation} avslogs (uppdraget gick till annan åkare).` });
-        }
         await notify(b.buyerId, { type:'accepted', bookingId: b.id, message: `${me.name} accepterade ditt motbud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation}.` });
         toast('Motbud accepterat. Kontaktuppgifter visas nu.');
         navigate('/booking/' + b.id);
@@ -6203,12 +6223,13 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       btn.disabled = true;
       try {
         // Säker databasfunktion: accepterar budet till dess senaste belopp och avslår övriga bud
-        const { data: res, error } = await sb.rpc('accept_bid', { p_bid_id: btn.dataset.acceptbid });
+        // Beloppet som visades på knappen skickas med. Avslagna budgivare aviseras av databasen.
+        const shown = Number(btn.dataset.amount);
+        const { data: res, error } = await sb.rpc('accept_bid', {
+          p_bid_id: btn.dataset.acceptbid, p_expected_amount: isFinite(shown) && shown > 0 ? shown : null,
+        });
         if (error) throw error;
         const amount = Number(res?.amount) || 0;
-        for (const hid of (res?.rejected_hauler_ids || [])) {
-          await notify(hid, { type:'bid_rejected', bookingId: b.id, message: `Ditt bud på ${b.fromLocation} → ${b.toLocation} avslogs (uppdraget gick till annan åkare).` });
-        }
         await notify(res.hauler_id, { type:'bid_accepted', bookingId: b.id, message: `Ditt bud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation} accepterades. Kontaktuppgifter är nu synliga.` });
         toast('Bud accepterat — körningen tilldelad');
         navigate('/booking/' + b.id);
@@ -6293,7 +6314,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       try {
         const proofFile = document.getElementById('proofFile').files[0];
         if (!proofFile) { toast('Ladda upp bild på fraktsedel först', 'err'); btn.disabled = false; btn.textContent = '✓ Slutför uppdrag'; return; }
-        const proofUrl = await uploadImage(proofFile, 'proof-images');
+        const proofUrl = await uploadImage(proofFile, 'proof-images', b.id);
         // Bygg payload med BARA fälten vi vill uppdatera (undvik FK-bugg från gamla värden)
         const updates = {
           status: 'completed',
