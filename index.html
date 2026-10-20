@@ -4747,9 +4747,9 @@ route(/^\/import-email$/, async (_m, u) => {
   mount(`
     <div class="card" style="background:linear-gradient(135deg,#0a0a0a,#1f1f1f);color:#fff;border:1px solid var(--brand);margin-bottom:18px">
       <h2 style="margin-top:0;color:#f97316">⚡ Auto-importera från Outlook</h2>
-      <p style="font-size:14px;color:#d4d4d8;margin-bottom:14px">Tryck en knapp och importera alla mejl från Hitta last-mappen i info@ostgotatransport.se.</p>
+      <p style="font-size:14px;color:#d4d4d8;margin-bottom:14px">Mejlen i Hitta last-mappen i info@ostgotatransport.se hämtas automatiskt var 10:e minut (mejl som redan importerats hoppas över). Knappen nedan kör en extra hämtning direkt.</p>
       <div class="btn-row">
-        <button id="autoImportBtn" style="background:#f97316;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-weight:700;cursor:pointer">🚀 Auto-importera från Outlook (Hitta last)</button>
+        <button id="autoImportBtn" style="background:#f97316;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-weight:700;cursor:pointer">🚀 Hämta nu från Outlook (Hitta last)</button>
         <button id="bulkPasteBtn" class="secondary" style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.15);padding:12px 24px;border-radius:8px;cursor:pointer">📋 Klistra in flera mejl samtidigt</button>
       </div>
       <div id="autoImportInfo" style="display:none;margin-top:16px;padding:16px;background:rgba(255,255,255,0.04);border-radius:8px;border:1px solid rgba(255,255,255,0.08)"></div>
