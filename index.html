@@ -1503,60 +1503,66 @@ function updateBellBadge(count) {
 }
 
 // --------- Snabbväxling mellan test-användare (bara för admin) ---------
-// Sparar lösenord LOKALT i webbläsaren så admin kan snabbväxla mellan roller vid testning.
+// Inga lösenord sparas: servern (admin-impersonate) ger admin en engångsbiljett för testkontot, och adminens
+// egen session sparas i webbläsaren så man kan hoppa tillbaka utan att logga in igen.
 const TEST_USERS = [
   { email: 'noor@ostgotatransport.se',    role: 'admin',    label: 'Admin (Noor)',        icon: '🏢' },
   { email: 'info@ostgotatransport.se',    role: 'akare',    label: 'Åkare (Katarina)',    icon: '🚚' },
   { email: 'noormadjed@hotmail.com',      role: 'chauffor', label: 'Chaufför (Test)',     icon: '🚛' },
 ];
-const QUICK_LOGIN_KEY = 'hittalast_quick_logins_v1';
-function loadQuickLogins() {
-  try {
-    const raw = localStorage.getItem(QUICK_LOGIN_KEY);
-    if (!raw) return {};
-    return JSON.parse(atob(raw));
-  } catch { return {}; }
+const QUICK_LOGIN_KEY = 'hittalast_quick_logins_v1';     // gammal lösenordslagring – töms och används inte längre
+const ADMIN_SESSION_KEY = 'hittalast_admin_session_v1';  // adminens egen session medan hon testar som en annan roll
+function loadQuickLogins() { try { localStorage.removeItem(QUICK_LOGIN_KEY); } catch {} return {}; }
+function loadAdminSession() {
+  try { const s = JSON.parse(localStorage.getItem(ADMIN_SESSION_KEY) || 'null'); return s && s.refresh_token ? s : null; } catch { return null; }
 }
-function saveQuickLogin(email, password) {
-  const store = loadQuickLogins();
-  store[email] = password;
-  try { localStorage.setItem(QUICK_LOGIN_KEY, btoa(JSON.stringify(store))); } catch {}
-}
+function saveAdminSession(s) { try { localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(s)); } catch {} }
 function clearQuickLogins() {
-  try { localStorage.removeItem(QUICK_LOGIN_KEY); } catch {}
+  try { localStorage.removeItem(QUICK_LOGIN_KEY); localStorage.removeItem(ADMIN_SESSION_KEY); } catch {}
 }
+// Ser till att klienten är inloggad som admin: antingen är vi det redan, eller så återställs den sparade adminsessionen
+async function ensureAdminSession() {
+  const cur = currentUserSync();
+  const { data: { session } } = await sb.auth.getSession();
+  if (cur?.role === 'admin' && session) return session;
+  const saved = loadAdminSession();
+  if (!saved) return null;
+  const { data, error } = await sb.auth.setSession({ access_token: saved.access_token, refresh_token: saved.refresh_token });
+  if (error || !data?.session) { clearQuickLogins(); return null; }
+  saveAdminSession({ access_token: data.session.access_token, refresh_token: data.session.refresh_token, email: saved.email });
+  return data.session;
+}
+// Byter konto utan lösenord. Admin → testkonto: engångsbiljett från servern som löses in med verifyOtp.
+// Tillbaka till admin: den sparade adminsessionen återställs.
 async function switchToUser(email) {
-  const store = loadQuickLogins();
-  let password = store[email];
-  if (!password) {
-    password = prompt(`Ange lösenordet för ${email}\n\nSparas lokalt i denna webbläsare för framtida snabbväxling.`);
-    if (!password) return;
-    saveQuickLogin(email, password);
-  }
-  const currentUser = currentUserSync ? currentUserSync() : null;
-  const currentEmail = currentUser?.email;
-  // Om vi växlar FRÅN en admin så spara admin's email så vi kan gå tillbaka
-  if (currentUser?.role === 'admin' && currentEmail && currentEmail !== email) {
-    sessionStorage.setItem('impersonatedByEmail', currentEmail);
-  } else if (currentUser?.role !== 'admin' && email === sessionStorage.getItem('impersonatedByEmail')) {
-    // Om vi går TILLBAKA till admin, rensa flaggan
-    sessionStorage.removeItem('impersonatedByEmail');
-  }
+  const target = TEST_USERS.find(t => t.email === email);
+  const adminEmail = sessionStorage.getItem('impersonatedByEmail') || loadAdminSession()?.email || '';
   try {
-    await sb.auth.signOut();
-    const { error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) {
-      // Lösenordet är fel — ta bort det så användaren får ange nytt
-      const s = loadQuickLogins(); delete s[email];
-      try { localStorage.setItem(QUICK_LOGIN_KEY, btoa(JSON.stringify(s))); } catch {}
-      alert(`Kunde inte logga in som ${email}: ${error.message}\n\nSparat lösenord raderat. Försök igen.`);
-      return;
+    if (target?.role === 'admin' || (adminEmail && email === adminEmail)) {
+      const s = await ensureAdminSession();
+      clearQuickLogins();
+      sessionStorage.removeItem('impersonatedByEmail');
+      if (!s) { toast('Adminsessionen har gått ut – logga in igen', 'warn'); await sb.auth.signOut(); navigate('/login'); return; }
+      location.hash = '#/'; location.reload(); return;
     }
-    // Hard reload för att uppdatera hela UI
+    const adminSession = await ensureAdminSession();
+    if (!adminSession) { toast('Logga in som admin först', 'err'); return; }
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/admin-impersonate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${adminSession.access_token}` },
+      body: JSON.stringify({ email }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `fel ${r.status}`);
+    const adminMail = adminSession.user?.email || adminEmail || '';
+    saveAdminSession({ access_token: adminSession.access_token, refresh_token: adminSession.refresh_token, email: adminMail });
+    sessionStorage.setItem('impersonatedByEmail', adminMail);
+    const { error } = await sb.auth.verifyOtp({ token_hash: j.token_hash, type: 'magiclink' });
+    if (error) { clearQuickLogins(); sessionStorage.removeItem('impersonatedByEmail'); throw error; }
     location.hash = '#/';
     location.reload();
   } catch (err) {
-    alert('Fel: ' + (err.message || err));
+    alert('Kunde inte byta konto: ' + friendlyError(err));
   }
 }
 // Kompatibilitets-shim (currentUser existerar redan; skapar en alias för tydlighet)
@@ -1656,8 +1662,8 @@ function layout(inner) {
   const bell = u ? `<a href="#/notifications" title="Aviseringar" class="bell-link">🔔<span class="label" style="margin-left:6px">Aviseringar</span>${unread>0?`<span class="bell-badge">${unread}</span>`:''}</a>` : '';
   const soundBtn = u ? `<button id="sound-toggle" type="button" title="${isSoundEnabled()?'Notifikationsljud PÅ':'Notifikationsljud AV'}" style="background:none;border:none;font-size:18px;cursor:pointer;padding:0 6px;line-height:1">${isSoundEnabled()?'🔊':'🔇'}</button>` : '';
   // Roll-växlare: bara för admin ELLER när admin redan impersonat en annan
-  const impersonatedBy = sessionStorage.getItem('impersonatedByEmail');
-  const showSwitcher = u && (u.role === 'admin' || impersonatedBy);
+  const impersonatedBy = sessionStorage.getItem('impersonatedByEmail') || (u && u.role !== 'admin' && loadAdminSession()?.email) || '';
+  const showSwitcher = u && (u.role === 'admin' || impersonatedBy || !!loadAdminSession());
   const switcherBtn = showSwitcher ? `<button id="role-switcher" type="button" title="Snabbväxla mellan admin/åkare/chaufför" style="background:none;border:none;font-size:18px;cursor:pointer;padding:0 6px;line-height:1;position:relative">🎭${impersonatedBy?'<span style="position:absolute;top:-4px;right:-4px;background:#f97316;color:#fff;font-size:9px;padding:1px 4px;border-radius:8px;font-weight:700">!</span>':''}</button>` : '';
   const userBlock = u ? `<span class="who">${esc(u.name)} · ${ROLE_LABEL[u.role]}</span>
                <a href="#" id="logout-link"><span class="label">Logga ut</span> ↩</a>` : '';
@@ -1743,12 +1749,12 @@ function mount(html) {
           <span style="font-size:22px">${t.icon}</span>
           <div style="flex:1">
             <div style="font-weight:600">${esc(t.label)}</div>
-            <div style="font-size:11px;color:#6b7280">${esc(t.email)} ${active?'· AKTIV':(saved?'':' · lösenord ej sparat')}</div>
+            <div style="font-size:11px;color:#6b7280">${esc(t.email)} ${active?'· AKTIV':''}</div>
           </div>
         </button>`;
       }).join('')}
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:6px 0">
-      <button id="rs-clear" style="display:block;width:100%;padding:8px 12px;border:none;background:#fff;cursor:pointer;text-align:left;font:inherit;color:#b42318;font-size:12px;border-radius:6px">🗑 Rensa sparade lösenord</button>
+      <button id="rs-clear" style="display:block;width:100%;padding:8px 12px;border:none;background:#fff;cursor:pointer;text-align:left;font:inherit;color:#b42318;font-size:12px;border-radius:6px">🗑 Glöm sparad adminsession</button>
     `;
     document.body.appendChild(menu);
     // Handlers per rad
@@ -1761,11 +1767,11 @@ function mount(html) {
       };
     });
     document.getElementById('rs-clear').onclick = () => {
-      if (!confirm('Rensa alla sparade lösenord för snabbväxling?')) return;
+      if (!confirm('Glöm den sparade adminsessionen? (Du får logga in som admin igen nästa gång.)')) return;
       clearQuickLogins();
       sessionStorage.removeItem('impersonatedByEmail');
       menu.remove();
-      toast('Sparade lösenord rensade');
+      toast('Sparad adminsession bortglömd');
     };
     // Stäng vid klick utanför
     setTimeout(() => {
