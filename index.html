@@ -4437,12 +4437,24 @@ route(/^\/free-vehicles$/, async (_m, u) => {
     if (vehErr) console.error('get_free_vehicle_details', vehErr);
     (vehs || []).forEach(v => { vehiclesById[v.id] = objToCamel(v); });
   }
+  // Lediga bilar från mejlimporten ("X → Öppen för förslag"): admin ser vilken speditör som skickade, andra ser bara att det kom via mejl
+  const senderNames = {};
+  if (u.role === 'admin') {
+    const invIds = [...new Set(active.map(fv => fv.senderInvitationId).filter(Boolean))];
+    if (invIds.length) {
+      try {
+        const { data: invs } = await sb.from('speditor_invitations').select('id, name, company, email').in('id', invIds);
+        (invs || []).forEach(inv => { senderNames[inv.id] = inv.company || inv.name || (inv.email ? inv.email.split('@')[1] : '?'); });
+      } catch (err) { console.warn('Kunde inte hämta avsändare:', err); }
+    }
+  }
+  const importedCount = active.filter(fv => fv.importSourceId).length;
   mount(`
     <h2>🚚 Lediga bilar (${active.length})</h2>
     <div class="btn-row">
       ${canAcceptAndPost(u) ? `<a class="btn" href="#/free-vehicles/new">➕ Lägg till ledig bil</a>` : ''}
     </div>
-    <div class="banner info">Här ser du tillgängliga fordon som söker last. Kontakta åkaren för att matcha med en körning.</div>
+    <div class="banner info">Här ser du tillgängliga fordon som söker last. Kontakta åkaren för att matcha med en körning.${importedCount ? ` Bilar märkta 📨 kommer från speditörers mejl ("öppen för förslag") och förmedlas via hittalast.` : ''}</div>
     <div class="card">
       ${active.length === 0 ? `<div class="empty">Inga lediga bilar just nu.</div>`
       : `<table class="compact">
@@ -4468,7 +4480,11 @@ route(/^\/free-vehicles$/, async (_m, u) => {
               <td>${vehTop}${vehSub ? '<br><span class="muted" style="font-size:11px">' + vehSub + '</span>' : ''}</td>
               <td>${features || '<span class="muted">—</span>'}</td>
               <td class="nowrap">${esc(avail)}</td>
-              <td>${owner ? esc(owner.company || owner.name) : '—'}<br><span class="muted" style="font-size:11px">${owner ? esc(owner.phone || owner.email) : ''}</span></td>
+              <td>${fv.importSourceId
+                ? (u.role === 'admin'
+                    ? `<span class="badge" style="background:#fed7aa;color:#9a3412;font-weight:600">📨 ${esc(senderNames[fv.senderInvitationId] || 'via mejl')}</span>`
+                    : `<span class="badge" style="background:#fed7aa;color:#9a3412;font-weight:600">📨 Mejlförfrågan</span><br><span class="muted" style="font-size:11px">kontakt via hittalast</span>`)
+                : `${owner ? esc(owner.company || owner.name) : '—'}<br><span class="muted" style="font-size:11px">${owner ? esc(owner.phone || owner.email) : ''}</span>`}</td>
               <td style="font-size:12px">${esc(fv.comment || '')}</td>
               <td class="nowrap">${isMine || u.role === 'admin'
                 ? `<a class="btn secondary icon-btn" href="#/free-vehicles/${fv.id}/edit" title="Ändra">✏️</a>
