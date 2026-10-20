@@ -24,9 +24,9 @@
   ],
   "redirects": [
     {
-      "source": "/:path*",
+      "source": "/(.*)",
       "has": [{ "type": "host", "value": "www.hittalast.se" }],
-      "destination": "https://hittalast.se/:path*",
+      "destination": "https://hittalast.se/$1",
       "permanent": true
     }
   ],

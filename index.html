@@ -767,7 +767,7 @@ async function refreshSession() {
       const profile = await Promise.race([profilePromise, profileTimeout]);
       _sessionUser = profile
         ? { ...profile, email: session.user.email }
-        : { id: session.user.id, email: session.user.email, role: 'akare', name: '' };
+        : { id: session.user.id, email: session.user.email, role: 'akare', name: '', __incomplete: true }; // profilen hann inte laddas – hämtas om vid nästa auth-händelse
     } else {
       _sessionUser = null;
     }
@@ -1122,26 +1122,15 @@ async function migrateLegacyRoles() {
   if (changed > 0) console.log(`[migrate] Migrerade ${changed} transportkopare → akare`);
 }
 
-async function cleanupOrphanedBookings() {
-  if (localStorage.getItem('orphanCleanupDone') === '1') return;
-  const users = await db.all('users');
-  const validIds = new Set(users.map(u => u.id));
-  const bookings = await db.all('bookings');
-  let removed = 0;
-  for (const b of bookings) {
-    const buyerMissing = !validIds.has(b.buyerId);
-    const haulerMissing = b.haulerId && !validIds.has(b.haulerId);
-    if (buyerMissing || haulerMissing) {
-      const msgs = await db.byIndex('messages', 'bookingId', b.id);
-      for (const m of msgs) await db.del('messages', m.id);
-      await db.del('bookings', b.id);
-      removed++;
-    }
-  }
-  localStorage.setItem('orphanCleanupDone', '1');
-  if (removed > 0) console.log(`[cleanup] Tog bort ${removed} bokningar med ogiltig uppdragsgivare/åkare`);
-}
+// (Den gamla klientstädningen av körningar utan uppdragsgivare är borttagen: en raderad uppdragsgivare
+// lämnar numera medvetet kvar utförda körningar som bokföringsunderlag för motparten.)
 const STATUS_LABEL = { open: 'Öppen', accepted: 'Accepterad', completed: 'Utförd', cancelled: 'Avbruten' };
+// Part som raderat sitt konto: körningen finns kvar med bara företagsuppgifter (bookings.party_snapshots)
+function deletedParty(b, side, fallbackName) {
+  const s = (b.partySnapshots || {})[side] || {};
+  return { id: side === 'buyer' ? b.buyerId : b.haulerId, name: s.company || fallbackName, company: '',
+           orgNr: s.orgNr || s.org_nr || '', address: s.address || '', email: '', phone: '', deleted: true };
+}
 const BID_STATUS_LABEL = { pending: 'Väntar', accepted: 'Accepterat', rejected: 'Avslaget', withdrawn: 'Tillbakadraget' };
 
 const COMMISSION_RATE = 0;
@@ -1168,6 +1157,8 @@ function launchDateLong() { return LAUNCH_DATE.toLocaleDateString('sv-SE', { day
 function launchDateShort() { return LAUNCH_DATE.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' }); }
 // Tidsstämplar kommer som ISO-strängar från databasen (ibland som tal från äldre data)
 function tsMs(v) { return typeof v === 'number' ? v : (v ? (new Date(v).getTime() || 0) : 0); }
+// Svensk lokal dag som YYYY-MM-DD (toISOString ger UTC-dagen, som blir fel timmarna runt midnatt)
+function localIso(d) { const x = d instanceof Date ? d : new Date(d); return new Date(x.getTime() - x.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
 const DEFAULT_PRICING_TIERS = [
   { min: 1,  max: 5,  price: 995  },
   { min: 6,  max: 15, price: 1995 },
@@ -1230,8 +1221,11 @@ function trialEndsAt(user) {
   if (!user.createdAt) return 0;
   const ms = typeof user.createdAt === 'number' ? user.createdAt : new Date(user.createdAt).getTime();
   if (isNaN(ms)) return 0;
-  // Provperioden börjar tidigast vid lanseringen – den som registrerar sig innan får sina 14 dagar från öppningsdagen
-  return Math.max(ms, LAUNCH_DATE.getTime()) + TRIAL_DAYS * 86400000;
+  // Provperioden börjar tidigast vid lanseringen – den som registrerar sig innan får sina 14 dagar från öppningsdagen,
+  // och den gäller sista dagen ut (samma regel som när admin sätter ett slutdatum)
+  const end = new Date(Math.max(ms, LAUNCH_DATE.getTime()) + TRIAL_DAYS * 86400000);
+  end.setHours(23, 59, 59, 999);
+  return end.getTime();
 }
 function trialDaysLeft(user) {
   const end = trialEndsAt(user);
@@ -1405,7 +1399,10 @@ function renderAuthLinkError(err) {
 
 async function render() {
   const authErr = readAuthErrorFromUrl();
-  if (authErr) return renderAuthLinkError(authErr);
+  if (authErr) {
+    if (location.search) history.replaceState(null, '', location.pathname + location.hash); // ?error=… ska inte överleva nästa hashbyte
+    return renderAuthLinkError(authErr);
+  }
   const hash = location.hash.slice(1) || '/';
   const user = currentUser();
 
@@ -2207,7 +2204,8 @@ route(/^\/integritet$/, async () => {
       <li><b>Väntelistan:</b> e-post, namn, företag, org.nr, telefon, roll och storlek på fordonsflotta – det du själv fyller i.</li>
       <li><b>Konto:</b> e-post, lösenord (lagras krypterat), namn, telefon, företag, org.nr, adress och fakturauppgifter.</li>
       <li><b>Användning:</b> körningar du lägger ut eller accepterar, bud, meddelanden i chatten, fraktsedlar och leveransfoton du laddar upp, samt aviseringar.</li>
-      <li><b>Teknik:</b> din inloggning sparas i webbläsarens lokala lagring. Vid anmälan till väntelistan sparas en hashad (oläslig) version av din IP-adress i högst ett dygn, enbart för att hindra massanmälningar. Vi använder inga spårningskakor och ingen reklam.</li>
+      <li><b>Mejlimport (speditörer):</b> om du skickar transportförfrågningar till en mejladress som är kopplad till hittalast.se sparar vi avsändarens e-post, namn och företag, ämnesraden och mejltexten för att skapa körningen och kunna mejla dig när en åkare lämnar bud. Du kan när som helst be oss sluta importera dina mejl.</li>
+      <li><b>Teknik:</b> din inloggning sparas i webbläsarens lokala lagring. Vid anmälan till väntelistan sparas en hashad (envägskrypterad) version av din IP-adress i högst ett dygn, enbart för att hindra massanmälningar. Vi använder inga spårningskakor och ingen reklam.</li>
     </ul>
     <h3>Varför</h3>
     <ul>
@@ -2219,20 +2217,23 @@ route(/^\/integritet$/, async () => {
     <h3>Hur länge</h3>
     <ul>
       <li>Kontouppgifter: så länge du har kvar ditt konto. Du kan radera kontot själv under <b>Mitt konto</b>.</li>
-      <li>Väntelistan: tills du skapat konto eller bett oss ta bort dig, dock längst 6 månader efter lanseringen.</li>
-      <li>Utförda körningar, bud och chatt: så länge någon av parterna har kvar sitt konto, eftersom de är motpartens underlag för fakturering.</li>
+      <li>Väntelistan: raderas 30 dagar efter att du skapat konto, när du ber oss ta bort dig, och i alla fall 6 månader efter lanseringen.</li>
+      <li>Utförda körningar: så länge någon av parterna har kvar sitt konto, eftersom de är motpartens underlag för fakturering. Raderar du ditt konto finns bara företagsnamn, org.nr och adress kvar på dem. Dina bud, chattmeddelanden, bilar, chaufförskonton och aviseringar raderas tillsammans med kontot.</li>
       <li>Fraktsedlar och foton: raderas när körningen raderas.</li>
+      <li>Importerade mejl: själva mejltexten raderas efter 90 dagar; körningen som skapades av den finns kvar enligt ovan.</li>
     </ul>
     <h3>Vilka som behandlar uppgifterna åt oss</h3>
     <ul>
       <li><b>Supabase</b> (databas, inloggning och fillagring) – servrar inom EU (Irland).</li>
       <li><b>Vercel</b> (webbhotell för själva sidan).</li>
       <li><b>Resend</b> (utskick av e-post från noreply@hittalast.se).</li>
-      <li><b>OpenStreetMap/Nominatim</b> (ortsuppslag för kartan och ruttplaneraren – bara ortnamn skickas, aldrig personuppgifter).</li>
+      <li><b>Microsoft 365</b> (läsning av den brevlåda som tar emot speditörers transportförfrågningar, via Microsoft Graph).</li>
+      <li><b>OpenStreetMap och OSRM</b> (kartbilder och ruttberäkning i ruttplaneraren). Din webbläsare hämtar kartbilder från OpenStreetMap och rutter från OSRM:s öppna demoserver, som då ser din IP-adress och de orter du planerar. Ortsuppslag (Nominatim) görs från vår server och innehåller bara ortnamn.</li>
+      <li><b>jsDelivr och Cloudflare cdnjs</b> (kodbibliotek som webbläsaren laddar – de ser din IP-adress men får inga uppgifter från tjänsten).</li>
     </ul>
     <p>Vi säljer aldrig dina uppgifter och delar dem inte med andra än ovanstående leverantörer och de motparter du gör affär med på plattformen.</p>
     <h3>Dina rättigheter</h3>
-    <p>Du har rätt att få ett utdrag av dina uppgifter, få dem rättade eller raderade, invända mot behandlingen och få dem flyttade. Du kan radera ditt konto själv under <b>Mitt konto</b>, eller mejla oss. Du kan också klagomål till Integritetsskyddsmyndigheten (imy.se).</p>
+    <p>Du har rätt att få ett utdrag av dina uppgifter, få dem rättade eller raderade, invända mot behandlingen och få dem flyttade. Du kan radera ditt konto själv under <b>Mitt konto</b>, eller mejla oss. Du kan också lämna klagomål till Integritetsskyddsmyndigheten (imy.se).</p>
   `);
 });
 
@@ -2279,7 +2280,7 @@ route(/^\/konto$/, async (_m, u) => {
     </div>
     <div class="card" style="border-color:#fecaca">
       <h3 style="margin-top:0">Radera mitt konto</h3>
-      <p class="muted">Kontot och dina uppgifter tas bort. Pågående uppdrag där du är åkare öppnas igen för nya bud och uppdragsgivaren aviseras. Utförda körningar finns kvar som underlag för motparten, utan ditt namn kopplat. Det går inte att ångra.</p>
+      <p class="muted">Kontot, dina kontaktuppgifter, bilar, chaufförskonton, bud, chattmeddelanden och aviseringar tas bort. Öppna körningar du lagt ut tas bort. Pågående uppdrag där du är åkare öppnas igen för nya bud, och pågående uppdrag du lagt ut avbryts – motparten aviseras i båda fallen. Utförda körningar finns kvar hos motparten som bokföringsunderlag, med bara företagsnamn, org.nr och adress. Det går inte att ångra.</p>
       <button class="danger" id="deleteMeBtn">Radera mitt konto</button>
     </div>
   `);
@@ -2326,8 +2327,6 @@ route(/^\/invoices$/, async (_m, u) => {
   // Datumfilter (från sessionStorage)
   const fromFilter = sessionStorage.getItem('invoiceFrom') || '';
   const toFilter = sessionStorage.getItem('invoiceTo') || '';
-  // Svensk lokal dag (toISOString ger UTC och förskjuter datumet en dag vid midnatt)
-  const localIso = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const filteredBookings = allBookings.filter(b => {
     const d = b.completedAt ? localIso(new Date(b.completedAt)) : '';
     if (fromFilter && d < fromFilter) return false;
@@ -2434,8 +2433,8 @@ route(/^\/invoices$/, async (_m, u) => {
       btn.disabled = true; btn.textContent = '⏳';
       try {
         const b = filteredBookings.find(x => x.id === id);
-        const buyer = await db.get('users', b.buyerId);
-        const hauler = b.haulerId ? await db.get('users', b.haulerId) : null;
+        const buyer = (b.buyerId && await db.get('users', b.buyerId)) || deletedParty(b, 'buyer', '(borttagen användare)');
+        const hauler = (b.haulerId && await db.get('users', b.haulerId)) || (b.partySnapshots?.hauler ? deletedParty(b, 'hauler', '(borttagen åkare)') : null);
         const doc = await generateInvoicePDF(b, buyer, hauler);
         doc.save(safeFileName(`fakturaunderlag-${b.fromLocation}-${b.toLocation}-${b.id.slice(0,8)}`) + '.pdf');
       } catch (err) {
@@ -2457,11 +2456,11 @@ route(/^\/invoices$/, async (_m, u) => {
       for (let i = 0; i < filteredBookings.length; i++) {
         const b = filteredBookings[i];
         zipBtn.textContent = `⏳ Bygger ZIP (${i + 1} av ${filteredBookings.length})...`;
-        const bk = await db.get('users', b.buyerId);
-        const hl = b.haulerId ? await db.get('users', b.haulerId) : null;
+        const bk = (b.buyerId && await db.get('users', b.buyerId)) || deletedParty(b, 'buyer', '(borttagen användare)');
+        const hl = (b.haulerId && await db.get('users', b.haulerId)) || (b.partySnapshots?.hauler ? deletedParty(b, 'hauler', '(borttagen åkare)') : null);
         const doc = await generateInvoicePDF(b, bk, hl);
         const blob = doc.output('blob');
-        const fname = safeFileName(`${b.completedAt ? b.completedAt.slice(0,10) : 'okand'}_${b.fromLocation}_${b.toLocation}_${b.id.slice(0,8)}`) + '.pdf';
+        const fname = safeFileName(`${b.completedAt ? localIso(b.completedAt) : 'okand'}_${b.fromLocation}_${b.toLocation}_${b.id.slice(0,8)}`) + '.pdf';
         zip.file(fname, blob);
       }
       zipBtn.textContent = '⏳ Komprimerar...';
@@ -2470,7 +2469,7 @@ route(/^\/invoices$/, async (_m, u) => {
       const a = document.createElement('a');
       a.href = url;
       // Filnamn baserat på period
-      const fromLabel = fromFilter || (filteredBookings[filteredBookings.length - 1]?.completedAt || '').slice(0, 10) || 'start';
+      const fromLabel = fromFilter || (filteredBookings[filteredBookings.length - 1]?.completedAt ? localIso(filteredBookings[filteredBookings.length - 1].completedAt) : 'start');
       const toLabel = toFilter || (filteredBookings[0]?.completedAt ? localIso(new Date(filteredBookings[0].completedAt)) : todayStr);
       a.download = `fakturaunderlag_${fromLabel}_till_${toLabel}.zip`;
       document.body.appendChild(a);
@@ -5142,8 +5141,8 @@ async function adminDashboard(u) {
   const users = await db.all('users');
   const byId = Object.fromEntries(users.map(x => [x.id, x]));
   bookings.forEach(b => {
-    b._buyerName = byId[b.buyerId]?.name;
-    b._haulerName = b.haulerId ? byId[b.haulerId]?.name : null;
+    b._buyerName = byId[b.buyerId]?.name || (b.partySnapshots?.buyer ? deletedParty(b, 'buyer', '(raderat konto)').name : undefined);
+    b._haulerName = (b.haulerId ? byId[b.haulerId]?.name : null) || (b.partySnapshots?.hauler ? deletedParty(b, 'hauler', '(raderat konto)').name : null);
   });
   bookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
@@ -5187,8 +5186,10 @@ route(/^\/waitlist$/, async (_m, u) => {
     </div>
     <div class="muted" style="margin-bottom:12px">Personer som anmält sig till lansering ${launchDateLong()} 2026. Lanseringsmejlet går automatiskt var 15:e minut under lanseringsdagen till alla som inte redan fått det, och du får ett kvitto under Aviseringar.</div>
     <div class="btn-row" style="margin-bottom:12px;align-items:center">
-      <button id="sendLaunchBtn" class="secondary">📨 Skicka lanseringsmejl nu (${rows.filter(r => !r.launch_email_sent_at).length} väntar)</button>
-      <span class="muted" style="font-size:12px">Skickar bara till dem som inte redan fått mejlet.</span>
+      ${isLaunched()
+        ? `<button id="sendLaunchBtn" class="secondary">📨 Skicka lanseringsmejl nu (${rows.filter(r => !r.launch_email_sent_at).length} väntar)</button>
+           <span class="muted" style="font-size:12px">Skickar bara till dem som inte redan fått mejlet.</span>`
+        : `<span class="muted" style="font-size:12px">📨 Manuell sändning av lanseringsmejlet öppnas ${launchDateLong()} kl 06:00 – ${rows.filter(r => !r.launch_email_sent_at).length} väntar.</span>`}
     </div>
     <div class="card">
       ${rows.length === 0 ? `<div class="empty">Inga anmälningar ännu.</div>` : `<table class="compact">
@@ -5210,6 +5211,7 @@ route(/^\/waitlist$/, async (_m, u) => {
   `);
   const sendBtn = document.getElementById('sendLaunchBtn');
   if (sendBtn) sendBtn.onclick = async () => {
+    if (!isLaunched()) { toast('Lanseringsmejlet kan skickas tidigast ' + launchDateLong() + ' kl 06:00', 'err'); return; }
     const waiting = rows.filter(r => !r.launch_email_sent_at).length;
     if (!waiting) { toast('Alla på listan har redan fått lanseringsmejlet'); return; }
     if (!confirm(`Skicka lanseringsmejlet "hittalast.se öppnar idag" till ${waiting} person(er) nu?`)) return;
@@ -5223,11 +5225,11 @@ route(/^\/waitlist$/, async (_m, u) => {
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `fel ${r.status}`);
-      toast(`Lanseringsmejl: ${j.sent || 0} skickade, ${j.failed || 0} misslyckade`);
+      toast(`Lanseringsmejl: ${j.sent || 0} skickade, ${j.failed || 0} misslyckade${j.skipped ? `, ${j.skipped} redan tagna av en parallell körning` : ''}`);
       render();
     } catch (err) {
-      sendBtn.disabled = false; sendBtn.textContent = '📨 Skicka lanseringsmejl nu';
-      toast('Kunde inte skicka: ' + (err.message || err), 'err');
+      toast('Kunde inte skicka: ' + friendlyError(err), 'err');
+      render(); // läs om listan – utskicket kan ha fortsatt på servern trots felet
     }
   };
 });
@@ -5365,7 +5367,7 @@ function userForm(target) {
     ? (typeof t.createdAt === 'number' ? t.createdAt : new Date(t.createdAt).getTime())
     : null;
   const trialEndIso = (createdAtMs && !isNaN(createdAtMs))
-    ? new Date(trialEndsAt({ ...t, createdAt: createdAtMs })).toISOString().slice(0,10)
+    ? localIso(trialEndsAt({ ...t, createdAt: createdAtMs }))
     : '';
   return `
     <div class="card">
@@ -5559,7 +5561,7 @@ route(/^\/stats$/, async (_m, u) => {
   const customTo = params.get('to');
   let range;
   if (customFrom && customTo) {
-    range = { from: new Date(customFrom).getTime(), to: new Date(customTo).getTime() + 86400000 - 1 };
+    range = { from: new Date(customFrom + 'T00:00:00').getTime(), to: new Date(customTo + 'T23:59:59.999').getTime() }; // svensk lokal tid, inte UTC
   } else {
     range = periodRange(period);
   }
@@ -6046,15 +6048,10 @@ route(/^\/booking\/([\w-]+)$/, async (m, u) => {
   const b = await db.get('bookings', id);
   if (!b) { toast('Bokningen finns inte', 'err'); return navigate('/'); }
 
-  let buyer = await db.get('users', b.buyerId);
-  if (!buyer) {
-    // Bokningen har en föråldrad uppdragsgivare (t.ex. från tidigare seed). Använd en placeholder.
-    buyer = { id: b.buyerId, name: '(borttagen användare)', email: '', phone: '', company: '' };
-  }
+  let buyer = b.buyerId ? await db.get('users', b.buyerId) : null;
+  if (!buyer) buyer = deletedParty(b, 'buyer', '(borttagen användare)');
   let hauler = b.haulerId ? await db.get('users', b.haulerId) : null;
-  if (b.haulerId && !hauler) {
-    hauler = { id: b.haulerId, name: '(borttagen åkare)', email: '', phone: '', company: '' };
-  }
+  if (!hauler && (b.haulerId || b.partySnapshots?.hauler)) hauler = deletedParty(b, 'hauler', '(borttagen åkare)');
 
   // Access-regler
   const isBuyer = u && u.id === b.buyerId;
@@ -6330,7 +6327,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       <div class="card">
         <h3>Parter</h3>
         <dl class="kv">
-          <dt>Uppdragsgivare</dt><dd><b>${esc(buyer.name)}</b>${buyer.company ? ' · ' + esc(buyer.company) : ''}</dd>
+          <dt>Uppdragsgivare</dt><dd><b>${esc(buyer.name)}</b>${buyer.company ? ' · ' + esc(buyer.company) : ''}${buyer.deleted ? ' <span class="muted">(kontot är raderat)</span>' : ''}</dd>
           ${buyerContact}
         </dl>
         ${hauler ? `
@@ -6461,7 +6458,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
   }
   const acceptCounterBtn = document.getElementById('acceptCounterBtn');
   if (acceptCounterBtn) {
-    acceptCounterBtn.onclick = async () => {
+    acceptCounterBtn.onclick = () => withLock(acceptCounterBtn, '⏳ Accepterar…', async () => {
       try {
         if (!me || !me.id) { toast('Du måste vara inloggad', 'err'); return navigate('/login'); }
         // Säker databasfunktion: kontrollerar att det är ditt bud och köparens motbud,
@@ -6479,9 +6476,9 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         navigate('/booking/' + b.id);
       } catch (err) {
         console.error('Accept-counter-fel:', err);
-        toast('Kunde inte acceptera motbud: ' + (err.message || err), 'err');
+        toast('Kunde inte acceptera motbud: ' + friendlyError(err), 'err');
       }
-    };
+    });
   }
   const counterBackBtn = document.getElementById('counterBackBtn');
   if (counterBackBtn) {
@@ -6942,21 +6939,23 @@ window.addEventListener('beforeinstallprompt', (e) => {
 (async () => {
   // Försök hämta session — men låt INTE detta blockera UI:t.
   // Om det hänger >2s, render:a ändå (refreshSession har egen timeout).
-  Promise.all([refreshSession(), loadPricingTiers()])
+  const startup = Promise.all([refreshSession(), loadPricingTiers()])
     .then(() => render())
     .catch(e => { console.error('Init refreshSession-fel:', e); render(); });
 
   // Lyssna på auth-ändringar (login/logout i annan flik etc.)
   try {
-    // Rita bara om när användaren faktiskt byts (in-/utloggning). Supabase skickar SIGNED_IN
+    // Rita bara om när läget faktiskt skiljer sig från det vi visar: annan användare, in-/utloggning,
+    // eller en profil som inte hann laddas vid starten (2 s-timeouten). Supabase skickar SIGNED_IN
     // varje gång fliken får fokus igen – då ska halvifyllda formulär och chattutkast inte försvinna.
-    let lastAuthUserId = null;
-    sb.auth.onAuthStateChange((event, session) => {
+    sb.auth.onAuthStateChange((_event, session) => {
       const uid = session?.user?.id || null;
-      if (event === 'INITIAL_SESSION') { lastAuthUserId = uid; return; } // startkedjan ovan ritar redan
-      if (uid === lastAuthUserId && event !== 'SIGNED_OUT') return;
-      lastAuthUserId = uid;
-      setTimeout(() => { refreshSession().finally(() => render()); }, 0);
+      startup.then(() => {
+        const cur = currentUser();
+        const stale = uid ? (!cur || cur.id !== uid || !!cur.__incomplete) : !!cur;
+        if (!stale) return;
+        refreshSession().finally(() => render());
+      });
     });
   } catch (e) {
     console.error('onAuthStateChange-fel:', e);
