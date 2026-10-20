@@ -2861,6 +2861,7 @@ async function unifiedDashboard(u) {
   const accepted = await db.byIndex('bookings', 'haulerId', u.id);
   const open = await db.byIndex('bookings', 'status', 'open');
   const available = open.filter(b => b.buyerId !== u.id);
+  const todayAvail = available.filter(b => b.loadDate === localIso(new Date())); // översikten visar dagens lastningar, resten under Tillgängliga körningar
 
   applySort(allMine);
   applySort(available);
@@ -2923,9 +2924,9 @@ async function unifiedDashboard(u) {
     </div>
 
     ${canAcceptAndPost(u) ? `<div class="card">
-      <h3>📋 Tillgängliga körningar (${available.length})</h3>
-      <div class="muted" style="margin-bottom:8px">Acceptera ett uppdrag — kontaktuppgifter visas efter accept.</div>
-      ${available.length === 0 ? `<div class="empty">Inga öppna körningar från andra just nu.</div>` : renderBookingTable(available, 'hauler', senderMap)}
+      <h3>📋 Tillgängliga körningar idag (${todayAvail.length})</h3>
+      <div class="muted" style="margin-bottom:8px">Lastas idag. ${available.length - todayAvail.length > 0 ? `Ytterligare ${available.length - todayAvail.length} st lastas andra dagar eller saknar datum – ` : ''}<a href="#/available">se alla och välj dag →</a> Kontaktuppgifter visas efter accept.</div>
+      ${todayAvail.length === 0 ? `<div class="empty">Inga körningar lastas idag.</div>` : renderBookingTable(todayAvail, 'hauler', senderMap)}
     </div>` : ''}
 
     <div class="card">
@@ -4022,16 +4023,65 @@ route(/^\/available$/, async (_m, u) => {
     : allOpen.filter(b => b.senderInvitationId === senderFilter);
 
   const filterBadge = senderFilter
-    ? `<span style="background:#f97316;color:#fff;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;margin-left:8px">filtrerad: ${open.length} av ${allOpen.length}</span>`
+    ? `<span style="background:#f97316;color:#fff;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:400;margin-left:8px">filtrerad: ${open.length} av ${allOpen.length}</span>`
     : '';
 
+  // Dagvy: dagens lastningar som standard, bakåt högst en dag (igår), framåt fritt. Valet minns i fliken.
+  const todayIso = localIso(new Date());
+  const shiftDay = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return localIso(d); };
+  const minDay = shiftDay(todayIso, -1);
+  let day = sessionStorage.getItem('availDay') || todayIso;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day < minDay) day = todayIso;
+  sessionStorage.setItem('availDay', day);
+  const dayLabel = iso => iso === todayIso ? 'Idag' : iso === minDay ? 'Igår' : iso === shiftDay(todayIso, 1) ? 'Imorgon'
+    : new Date(iso + 'T12:00:00').toLocaleDateString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' });
+  const dayLong = new Date(day + 'T12:00:00').toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' });
+  const dated = open.filter(b => b.loadDate === day);
+  const undated = open.filter(b => !b.loadDate);
+  const otherDays = open.length - dated.length - undated.length;
+
+  const rowHtml = b => `
+            <tr data-id="${b.id}" data-route="${esc(b.fromLocation)} → ${esc(b.toLocation)}" onclick="location.hash='#/booking/${b.id}'" style="cursor:pointer">
+              ${u.role === 'admin' ? `<td onclick="event.stopPropagation()" style="text-align:center"><input type="checkbox" class="booking-select" data-id="${b.id}"></td>` : ''}
+              <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
+              ${u.role === 'admin' ? `<td>${senderLabel(b)}</td>` : ''}
+              <td class="nowrap">${cellFlm(b)}</td>
+              <td class="nowrap">${cellVikt(b)}</td>
+              <td class="nowrap" style="text-align:center">${cellPallplatser(b)}</td>
+              <td>${esc(b.loadDate)} ${esc(b.loadTime || '')}</td>
+              <td>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</td>
+              <td class="nowrap">
+                ${b.adr ? '<span class="badge feature">ADR</span>' : ''}
+                ${b.tailLift ? '<span class="badge feature">Bakgavellift</span>' : ''}
+                ${b.openSide ? '<span class="badge feature">Öppningsbar sida</span>' : ''}
+                ${!b.adr && !b.tailLift && !b.openSide ? '<span class="muted">—</span>' : ''}
+              </td>
+              <td>${b.price == null ? '<span class="muted">Önskar prisförslag</span>' : fmtMoney(b.price)}</td>
+              ${canSeeCommission(u) ? `<td>${b.price == null ? '<span class="muted">—</span>' : fmtMoney(nettoFor(b.price))}</td>` : ''}
+              ${u.role === 'admin' ? `<td class="nowrap" style="text-align:right"><button class="danger icon-btn" data-delbooking="${b.id}" data-route="${esc(b.fromLocation)} → ${esc(b.toLocation)}" title="Radera bokning" onclick="event.stopPropagation()">🗑</button></td>` : ''}
+            </tr>`;
+  const tableHtml = (list, withSelectAll) => `<table>
+        <thead><tr>
+          ${u.role === 'admin' ? `<th style="width:32px">${withSelectAll ? '<input type="checkbox" id="selectAllBookings" title="Markera alla">' : ''}</th>` : ''}
+          <th>Från → Till</th>${u.role === 'admin' ? '<th>📨 Avsändare</th>' : ''}<th>Flm</th><th>Vikt</th><th title="Pallplatser">ppl</th><th>Lastning</th><th>Lossning</th><th>Krav</th><th>Pris</th>${canSeeCommission(u) ? '<th>Netto åkare</th>' : ''}${u.role === 'admin' ? '<th></th>' : ''}
+        </tr></thead>
+        <tbody>${list.map(rowHtml).join('')}
+        </tbody>
+      </table>`;
+
   mount(`
-    <h2>Tillgängliga körningar ${allOpen.length > 0 ? `<span class="muted" style="font-size:14px;font-weight:400">(${allOpen.length} st)</span>` : ''}${filterBadge}</h2>
+    <h2>Tillgängliga körningar <span class="muted" style="font-size:14px;font-weight:400">(${dated.length} ${dayLabel(day).toLowerCase()}${undated.length ? `, ${undated.length} utan datum` : ''}${otherDays ? `, ${otherDays} andra dagar` : ''})</span>${filterBadge}</h2>
     <a href="#/planera" class="card" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:linear-gradient(135deg,#0a0a0a,#1f1f1f);color:#fff;border:1px solid var(--brand);text-decoration:none;margin-bottom:14px">
       <div style="font-size:34px;line-height:1">🧭</div>
       <div style="flex:1;min-width:220px"><b style="color:#f97316;font-size:16px">Har du en bil på väg någonstans?</b><div style="font-size:13px;color:#d4d4d8;margin-top:3px">Ange var den står och vart den ska, så hittar vi lass längs vägen som passar i tid och kapacitet — och ritar turen på karta.</div></div>
       <span class="btn" style="background:#f97316;color:#fff;border:none">Planera rutt →</span>
     </a>
+    <div class="btn-row" style="flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px">
+      <button class="secondary" id="dayPrev" style="margin:0" ${day <= minDay ? 'disabled title="Du kan bara gå tillbaka en dag"' : ''}>◀ ${dayLabel(shiftDay(day, -1))}</button>
+      <input type="date" id="dayPick" value="${day}" min="${minDay}" style="font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:inherit">
+      <button class="secondary" id="dayNext" style="margin:0">${dayLabel(shiftDay(day, 1))} ▶</button>
+      ${day !== todayIso ? `<button class="secondary" id="dayToday" style="margin:0">Idag</button>` : ''}
+    </div>
     <div class="btn-row" style="flex-wrap:wrap;align-items:center">
       <label class="btn secondary" style="margin:0;display:inline-flex;align-items:center;gap:8px;cursor:pointer">
         ↕ Sortera:
@@ -4052,36 +4102,15 @@ route(/^\/available$/, async (_m, u) => {
     </div>
     <div class="banner info">Kontaktuppgifter till uppdragsgivaren visas först när du accepterar uppdraget.</div>
     <div class="card">
-      ${open.length === 0 ? `<div class="empty">${senderFilter ? 'Inga körningar matchar valt filter.' : 'Inga öppna körningar just nu.'}</div>`
-      : `<table>
-        <thead><tr>
-          ${u.role === 'admin' ? `<th style="width:32px"><input type="checkbox" id="selectAllBookings" title="Markera alla"></th>` : ''}
-          <th>Från → Till</th>${u.role === 'admin' ? '<th>📨 Avsändare</th>' : ''}<th>Flm</th><th>Vikt</th><th title="Pallplatser">ppl</th><th>Lastning</th><th>Lossning</th><th>Krav</th><th>Pris</th>${canSeeCommission(u) ? '<th>Netto åkare</th>' : ''}${u.role === 'admin' ? '<th></th>' : ''}
-        </tr></thead>
-        <tbody>
-          ${open.map(b => `
-            <tr data-id="${b.id}" data-route="${esc(b.fromLocation)} → ${esc(b.toLocation)}" onclick="location.hash='#/booking/${b.id}'" style="cursor:pointer">
-              ${u.role === 'admin' ? `<td onclick="event.stopPropagation()" style="text-align:center"><input type="checkbox" class="booking-select" data-id="${b.id}"></td>` : ''}
-              <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
-              ${u.role === 'admin' ? `<td>${senderLabel(b)}</td>` : ''}
-              <td class="nowrap">${cellFlm(b)}</td>
-              <td class="nowrap">${cellVikt(b)}</td>
-              <td class="nowrap" style="text-align:center">${cellPallplatser(b)}</td>
-              <td>${esc(b.loadDate)} ${esc(b.loadTime || '')}</td>
-              <td>${esc(b.unloadDate)} ${esc(b.unloadTime || '')}</td>
-              <td class="nowrap">
-                ${b.adr ? '<span class="badge feature">ADR</span>' : ''}
-                ${b.tailLift ? '<span class="badge feature">Bakgavellift</span>' : ''}
-                ${b.openSide ? '<span class="badge feature">Öppningsbar sida</span>' : ''}
-                ${!b.adr && !b.tailLift && !b.openSide ? '<span class="muted">—</span>' : ''}
-              </td>
-              <td>${b.price == null ? '<span class="muted">Önskar prisförslag</span>' : fmtMoney(b.price)}</td>
-              ${canSeeCommission(u) ? `<td>${b.price == null ? '<span class="muted">—</span>' : fmtMoney(nettoFor(b.price))}</td>` : ''}
-              ${u.role === 'admin' ? `<td class="nowrap" style="text-align:right"><button class="danger icon-btn" data-delbooking="${b.id}" data-route="${esc(b.fromLocation)} → ${esc(b.toLocation)}" title="Radera bokning" onclick="event.stopPropagation()">🗑</button></td>` : ''}
-            </tr>`).join('')}
-        </tbody>
-      </table>
-      ${u.role === 'admin' ? `
+      <h3 style="margin-top:0">📅 ${dayLabel(day)} <span class="muted" style="font-weight:400;font-size:13px">${dayLong}</span></h3>
+      ${dated.length === 0
+        ? `<div class="empty">${senderFilter ? 'Inga körningar matchar valt filter den här dagen.' : `Inga körningar lastas ${dayLabel(day).toLowerCase()}.`}${otherDays ? ` <span class="muted">${otherDays} st lastas andra dagar – bläddra med pilarna.</span>` : ''}</div>`
+        : tableHtml(dated, true)}
+      ${undated.length ? `<details style="margin-top:14px"${dated.length === 0 ? ' open' : ''}>
+        <summary style="cursor:pointer;font-weight:600">📦 Utan angivet lastdatum (${undated.length}) – kan ofta lastas när det passar</summary>
+        <div style="margin-top:10px">${tableHtml(undated, false)}</div>
+      </details>` : ''}
+      ${u.role === 'admin' && (dated.length + undated.length) > 0 ? `
         <div id="bulkActionBar" style="display:none;position:sticky;bottom:0;background:var(--card);border-top:2px solid var(--brand);padding:12px 16px;margin:0 -14px -14px;display:none;align-items:center;gap:14px;flex-wrap:wrap">
           <strong id="bulkSelectedCount" style="color:var(--brand)">0 markerade</strong>
           <button class="danger" id="bulkDeleteBtn">🗑 Radera valda</button>
@@ -4089,10 +4118,18 @@ route(/^\/available$/, async (_m, u) => {
           <span class="muted" style="font-size:12px;margin-left:auto">⚠️ Tar även bort relaterade bud, meddelanden och notifikationer</span>
         </div>
       ` : ''}
-      `}
     </div>
   `);
   bindRowClicks();
+  const goDay = iso => { sessionStorage.setItem('availDay', iso); navigate('/available'); };
+  const dayPrev = document.getElementById('dayPrev'); if (dayPrev) dayPrev.onclick = () => goDay(shiftDay(day, -1));
+  const dayNext = document.getElementById('dayNext'); if (dayNext) dayNext.onclick = () => goDay(shiftDay(day, 1));
+  const dayToday = document.getElementById('dayToday'); if (dayToday) dayToday.onclick = () => goDay(todayIso);
+  const dayPick = document.getElementById('dayPick');
+  if (dayPick) dayPick.onchange = () => {
+    if (dayPick.value && dayPick.value >= minDay) goDay(dayPick.value);
+    else { toast('Du kan bara gå tillbaka en dag', 'err'); dayPick.value = day; }
+  };
   const ss = document.getElementById('sortSelectAvail');
   if (ss) ss.onchange = () => { setSortKey(ss.value); navigate('/available'); };
 
