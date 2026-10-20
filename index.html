@@ -2861,10 +2861,10 @@ async function unifiedDashboard(u) {
   const accepted = await db.byIndex('bookings', 'haulerId', u.id);
   const open = await db.byIndex('bookings', 'status', 'open');
   const available = open.filter(b => b.buyerId !== u.id);
-  const todayAvail = available.filter(b => b.loadDate === localIso(new Date())); // översikten visar dagens lastningar, resten under Tillgängliga körningar
 
   applySort(allMine);
   applySort(available);
+  const todayAvail = available.filter(b => b.loadDate === localIso(new Date())); // översikten visar dagens lastningar (i vald sortering), resten under Tillgängliga körningar
   accepted.sort((a, b) => tsMs(b.acceptedAt) - tsMs(a.acceptedAt));
 
   const sortKey = getSortKey();
@@ -4030,15 +4030,16 @@ route(/^\/available$/, async (_m, u) => {
   const todayIso = localIso(new Date());
   const shiftDay = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return localIso(d); };
   const minDay = shiftDay(todayIso, -1);
-  let day = sessionStorage.getItem('availDay') || todayIso;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day < minDay) day = todayIso;
-  sessionStorage.setItem('availDay', day);
+  // Ett sparat val gäller bara samma kalenderdag det gjordes – en flik som står öppen över midnatt ska öppna på Idag
+  const [storedDay, pickedOn] = (sessionStorage.getItem('availDay') || '').split('@');
+  const day = (pickedOn === todayIso && /^\d{4}-\d{2}-\d{2}$/.test(storedDay) && storedDay >= minDay) ? storedDay : todayIso;
   const dayLabel = iso => iso === todayIso ? 'Idag' : iso === minDay ? 'Igår' : iso === shiftDay(todayIso, 1) ? 'Imorgon'
     : new Date(iso + 'T12:00:00').toLocaleDateString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' });
   const dayLong = new Date(day + 'T12:00:00').toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' });
   const dated = open.filter(b => b.loadDate === day);
   const undated = open.filter(b => !b.loadDate);
-  const otherDays = open.length - dated.length - undated.length;
+  const past = open.filter(b => b.loadDate && b.loadDate < minDay); // passerat lastdatum – nås inte med pilarna, admin får en egen sektion
+  const otherDays = open.length - dated.length - undated.length - past.length;
 
   const rowHtml = b => `
             <tr data-id="${b.id}" data-route="${esc(b.fromLocation)} → ${esc(b.toLocation)}" onclick="location.hash='#/booking/${b.id}'" style="cursor:pointer">
@@ -4110,7 +4111,11 @@ route(/^\/available$/, async (_m, u) => {
         <summary style="cursor:pointer;font-weight:600">📦 Utan angivet lastdatum (${undated.length}) – kan ofta lastas när det passar</summary>
         <div style="margin-top:10px">${tableHtml(undated, false)}</div>
       </details>` : ''}
-      ${u.role === 'admin' && (dated.length + undated.length) > 0 ? `
+      ${u.role === 'admin' && past.length ? `<details style="margin-top:14px">
+        <summary style="cursor:pointer;font-weight:600">⏰ Passerat lastdatum (${past.length}) – syns inte för åkare, städa gärna</summary>
+        <div style="margin-top:10px">${tableHtml(past, false)}</div>
+      </details>` : ''}
+      ${u.role === 'admin' && (dated.length + undated.length + past.length) > 0 ? `
         <div id="bulkActionBar" style="display:none;position:sticky;bottom:0;background:var(--card);border-top:2px solid var(--brand);padding:12px 16px;margin:0 -14px -14px;display:none;align-items:center;gap:14px;flex-wrap:wrap">
           <strong id="bulkSelectedCount" style="color:var(--brand)">0 markerade</strong>
           <button class="danger" id="bulkDeleteBtn">🗑 Radera valda</button>
@@ -4121,13 +4126,14 @@ route(/^\/available$/, async (_m, u) => {
     </div>
   `);
   bindRowClicks();
-  const goDay = iso => { sessionStorage.setItem('availDay', iso); navigate('/available'); };
+  const goDay = iso => { sessionStorage.setItem('availDay', iso + '@' + todayIso); navigate('/available'); };
   const dayPrev = document.getElementById('dayPrev'); if (dayPrev) dayPrev.onclick = () => goDay(shiftDay(day, -1));
   const dayNext = document.getElementById('dayNext'); if (dayNext) dayNext.onclick = () => goDay(shiftDay(day, 1));
   const dayToday = document.getElementById('dayToday'); if (dayToday) dayToday.onclick = () => goDay(todayIso);
   const dayPick = document.getElementById('dayPick');
   if (dayPick) dayPick.onchange = () => {
-    if (dayPick.value && dayPick.value >= minDay) goDay(dayPick.value);
+    if (!dayPick.value) { dayPick.value = day; return; }
+    if (dayPick.value >= minDay) goDay(dayPick.value);
     else { toast('Du kan bara gå tillbaka en dag', 'err'); dayPick.value = day; }
   };
   const ss = document.getElementById('sortSelectAvail');
@@ -4169,6 +4175,8 @@ route(/^\/available$/, async (_m, u) => {
   if (u.role === 'admin') {
     const selectAll = document.getElementById('selectAllBookings');
     const checkboxes = document.querySelectorAll('.booking-select');
+    // "Markera alla" gäller bara sin egen tabell (dagens) – inte raderna i de hopfällda sektionerna
+    const ownBoxes = selectAll ? selectAll.closest('table').querySelectorAll('.booking-select') : [];
     const bar = document.getElementById('bulkActionBar');
     const counter = document.getElementById('bulkSelectedCount');
     const deleteBtn = document.getElementById('bulkDeleteBtn');
@@ -4182,8 +4190,9 @@ route(/^\/available$/, async (_m, u) => {
       counter.textContent = `${ids.length} ${ids.length === 1 ? 'markerad' : 'markerade'}`;
       bar.style.display = ids.length > 0 ? 'flex' : 'none';
       if (selectAll) {
-        selectAll.checked = ids.length === checkboxes.length && checkboxes.length > 0;
-        selectAll.indeterminate = ids.length > 0 && ids.length < checkboxes.length;
+        const ownChecked = Array.from(ownBoxes).filter(cb => cb.checked).length;
+        selectAll.checked = ownChecked === ownBoxes.length && ownBoxes.length > 0;
+        selectAll.indeterminate = ownChecked > 0 && ownChecked < ownBoxes.length;
       }
     }
 
@@ -4191,7 +4200,7 @@ route(/^\/available$/, async (_m, u) => {
     if (selectAll) {
       selectAll.addEventListener('click', e => e.stopPropagation());
       selectAll.addEventListener('change', () => {
-        checkboxes.forEach(cb => cb.checked = selectAll.checked);
+        ownBoxes.forEach(cb => cb.checked = selectAll.checked);
         updateBar();
       });
     }
@@ -4241,9 +4250,9 @@ route(/^\/available$/, async (_m, u) => {
     // "Rensa ALLA tillgängliga"-knapp — rensar även importhistorik
     // så att auto-import kan köras om från noll
     document.getElementById('clearAllOpenBtn')?.addEventListener('click', async () => {
-      const total = document.querySelectorAll('tr[data-id]').length;
+      const total = allOpen.length; // allt öppet, oavsett vald dag och filter – det är vad raderingen nedan tar
       if (total === 0) return;
-      if (!confirm(`⚠️ Radera ALLA ${total} tillgängliga körningar?\n\nDetta:\n• Tar bort alla körningar + bud/meddelanden/notifikationer\n• Nollställer importhistoriken så auto-import kan köras om från noll\n• Speditörer (magic-links) behålls\n\nKan inte ångras.`)) return;
+      if (!confirm(`⚠️ Radera ALLA ${total} tillgängliga körningar (alla dagar, oavsett filter)?\n\nDetta:\n• Tar bort alla körningar + bud/meddelanden/notifikationer\n• Nollställer importhistoriken så auto-import kan köras om från noll\n• Speditörer (magic-links) behålls\n\nKan inte ångras.`)) return;
       if (!confirm(`Är du HELT säker? Detta är slutgiltigt.`)) return;
 
       const clearBtn = document.getElementById('clearAllOpenBtn');
