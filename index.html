@@ -4032,15 +4032,15 @@ route(/^\/available$/, async (_m, u) => {
     ? `<span style="background:#f97316;color:#fff;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:400;margin-left:8px">filtrerad: ${open.length} av ${allOpen.length}</span>`
     : '';
 
-  // Dagvy: Idag och Imorgon som snabbknappar, kalender för senare datum, inget bakåt (Noors beslut 2026-10-20).
+  // Dagvy: Idag och Imorgon som snabbknappar, kalender för andra datum, bakåt högst en dag (Noors beslut 2026-10-20).
   // Valet minns i fliken, men bara samma kalenderdag.
   const todayIso = localIso(new Date());
   const shiftDay = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return localIso(d); };
-  const minDay = todayIso;
+  const minDay = shiftDay(todayIso, -1); // igår är det äldsta man kan titta på
   const maxDay = shiftDay(todayIso, 1); // "Imorgon"-knappen
   const [storedDay, pickedOn] = (sessionStorage.getItem('availDay') || '').split('@');
   const day = (pickedOn === todayIso && /^\d{4}-\d{2}-\d{2}$/.test(storedDay) && storedDay >= minDay) ? storedDay : todayIso;
-  const dayLabel = iso => iso === todayIso ? 'Idag' : iso === maxDay ? 'Imorgon'
+  const dayLabel = iso => iso === todayIso ? 'Idag' : iso === maxDay ? 'Imorgon' : iso === minDay ? 'Igår'
     : new Date(iso + 'T12:00:00').toLocaleDateString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' });
   const dayLong = new Date(day + 'T12:00:00').toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' });
   const dated = open.filter(b => b.loadDate === day);
@@ -4087,7 +4087,7 @@ route(/^\/available$/, async (_m, u) => {
     <div class="btn-row" style="flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px">
       <button class="${day === todayIso ? '' : 'secondary'}" id="dayToday" style="margin:0">Idag</button>
       <button class="${day === maxDay ? '' : 'secondary'}" id="dayTomorrow" style="margin:0">Imorgon</button>
-      <input type="date" id="dayPick" value="${day}" min="${minDay}" title="Välj ett senare datum" style="font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:inherit">
+      <input type="date" id="dayPick" value="${day}" min="${minDay}" title="Välj datum (högst en dag bakåt)" style="font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:inherit">
     </div>
     <div class="btn-row" style="flex-wrap:wrap;align-items:center">
       <label class="btn secondary" style="margin:0;display:inline-flex;align-items:center;gap:8px;cursor:pointer">
@@ -4139,7 +4139,7 @@ route(/^\/available$/, async (_m, u) => {
   if (dayPick) dayPick.onchange = () => {
     if (!dayPick.value) { dayPick.value = day; return; }
     if (dayPick.value >= minDay) goDay(dayPick.value);
-    else { toast('Passerade dagar visas inte', 'err'); dayPick.value = day; }
+    else { toast('Du kan bara gå tillbaka en dag', 'err'); dayPick.value = day; }
   };
   const ss = document.getElementById('sortSelectAvail');
   if (ss) ss.onchange = () => { setSortKey(ss.value); navigate('/available'); };
