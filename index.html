@@ -822,7 +822,8 @@ async function register(data) {
 
 // Glömt lösenord: Supabase mejlar en länk som loggar in användaren tillfälligt och skickar hit #/nytt-losenord
 async function sendPasswordReset(email) {
-  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/#/nytt-losenord` });
+  // Supabase byter ut allt efter # mot sin egen inloggningsbiljett, så vi skickar till roten och låter PASSWORD_RECOVERY-händelsen styra till #/nytt-losenord
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/` });
   if (error) throw error;
 }
 
