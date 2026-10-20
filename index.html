@@ -1170,7 +1170,9 @@ let PRICING_TIERS = DEFAULT_PRICING_TIERS.map(t => ({ ...t }));
 // Förut sparades den bara i adminens egen webbläsare, så åkarna såg standardpriserna.
 async function loadPricingTiers() {
   try {
-    const { data, error } = await sb.from('pricing_tiers').select('min_vehicles,max_vehicles,monthly_price').order('min_vehicles');
+    let q = sb.from('pricing_tiers').select('min_vehicles,max_vehicles,monthly_price').order('min_vehicles');
+    if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) q = q.abortSignal(AbortSignal.timeout(2500)); // får aldrig hålla uppstarten
+    const { data, error } = await q;
     if (error) throw error;
     const rows = (data || [])
       .map(r => ({ min: Number(r.min_vehicles), max: Number(r.max_vehicles), price: Number(r.monthly_price) }))
@@ -1221,17 +1223,19 @@ function trialEndsAt(user) {
   if (!user.createdAt) return 0;
   const ms = typeof user.createdAt === 'number' ? user.createdAt : new Date(user.createdAt).getTime();
   if (isNaN(ms)) return 0;
-  // Provperioden börjar tidigast vid lanseringen – den som registrerar sig innan får sina 14 dagar från öppningsdagen,
-  // och den gäller sista dagen ut (samma regel som när admin sätter ett slutdatum)
-  const end = new Date(Math.max(ms, LAUNCH_DATE.getTime()) + TRIAL_DAYS * 86400000);
+  // Provperioden börjar tidigast vid lanseringen – den som registrerar sig innan får sina 14 dagar från öppningsdagen.
+  // Startdagen räknas som dag 1 och sista dagen gäller ut (23:59), samma regel som när admin sätter ett slutdatum.
+  const end = new Date(Math.max(ms, LAUNCH_DATE.getTime()));
+  end.setDate(end.getDate() + TRIAL_DAYS - 1);
   end.setHours(23, 59, 59, 999);
   return end.getTime();
 }
 function trialDaysLeft(user) {
   const end = trialEndsAt(user);
-  if (!end) return 0;
-  const ms = end - Date.now();
-  return Math.max(0, Math.ceil(ms / 86400000));
+  if (!end || end < Date.now()) return 0;
+  // Kalenderdagar i svensk tid, slutdagen inräknad (ren ms-delning blir en dag fel runt sommartidsskiftet)
+  const e = new Date(end), n = new Date();
+  return Math.max(0, Math.round((Date.UTC(e.getFullYear(), e.getMonth(), e.getDate()) - Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())) / 86400000) + 1);
 }
 function isTrialActive(user) {
   return trialDaysLeft(user) > 0;
@@ -2218,7 +2222,7 @@ route(/^\/integritet$/, async () => {
     <ul>
       <li>Kontouppgifter: så länge du har kvar ditt konto. Du kan radera kontot själv under <b>Mitt konto</b>.</li>
       <li>Väntelistan: raderas 30 dagar efter att du skapat konto, när du ber oss ta bort dig, och i alla fall 6 månader efter lanseringen.</li>
-      <li>Utförda körningar: så länge någon av parterna har kvar sitt konto, eftersom de är motpartens underlag för fakturering. Raderar du ditt konto finns bara företagsnamn, org.nr och adress kvar på dem. Dina bud, chattmeddelanden, bilar, chaufförskonton och aviseringar raderas tillsammans med kontot.</li>
+      <li>Utförda körningar: så länge någon av parterna har kvar sitt konto, eftersom de är motpartens underlag för fakturering. Raderar du ditt konto finns bara företagsnamn, org.nr och adress kvar på dem. Dina bud, chattmeddelanden, bilar och aviseringar raderas tillsammans med kontot, liksom chaufförskonton du bjudit in som inte kör åt något annat åkeri. När båda parter har raderat sina konton tas körningen bort helt, inklusive fraktsedlar och foton.</li>
       <li>Fraktsedlar och foton: raderas när körningen raderas.</li>
       <li>Importerade mejl: själva mejltexten raderas efter 90 dagar; körningen som skapades av den finns kvar enligt ovan.</li>
     </ul>
@@ -2280,7 +2284,7 @@ route(/^\/konto$/, async (_m, u) => {
     </div>
     <div class="card" style="border-color:#fecaca">
       <h3 style="margin-top:0">Radera mitt konto</h3>
-      <p class="muted">Kontot, dina kontaktuppgifter, bilar, chaufförskonton, bud, chattmeddelanden och aviseringar tas bort. Öppna körningar du lagt ut tas bort. Pågående uppdrag där du är åkare öppnas igen för nya bud, och pågående uppdrag du lagt ut avbryts – motparten aviseras i båda fallen. Utförda körningar finns kvar hos motparten som bokföringsunderlag, med bara företagsnamn, org.nr och adress. Det går inte att ångra.</p>
+      <p class="muted">Kontot, dina kontaktuppgifter, bilar, bud, chattmeddelanden och aviseringar tas bort, liksom chaufförskonton du bjudit in som inte kör åt något annat åkeri. Är du själv chaufför tas din rad bort ur åkeriets chaufförslista. Öppna körningar du lagt ut tas bort. Pågående uppdrag där du är åkare öppnas igen för nya bud, och pågående uppdrag du lagt ut avbryts – motparten aviseras i båda fallen. Utförda körningar finns kvar hos motparten som bokföringsunderlag, med bara företagsnamn, org.nr och adress. Det går inte att ångra.</p>
       <button class="danger" id="deleteMeBtn">Radera mitt konto</button>
     </div>
   `);
@@ -2794,14 +2798,14 @@ async function unifiedDashboard(u) {
   const myByStatus = { open: [], accepted: [], completed: [] };
   allMine.forEach(b => myByStatus[b.status]?.push(b));
 
-  const accByStatus = { accepted: [], completed: [] };
+  const accByStatus = { accepted: [], completed: [], cancelled: [] };
   accepted.forEach(b => accByStatus[b.status]?.push(b));
   const totalEarned = accByStatus.completed.reduce((s, b) => s + ((b.price || 0) - (b.commission || 0)), 0);
 
   // Aktiva publicerade (ej utförda) — dessa visas under "Mina publicerade körningar"
-  const myActive = allMine.filter(b => b.status !== 'completed');
+  const myActive = allMine.filter(b => b.status === 'open' || b.status === 'accepted');
   // Aktiva accepterade (ej utförda) — dessa visas under "Uppdrag jag accepterat"
-  const accAcceptedActive = accepted.filter(b => b.status !== 'completed');
+  const accAcceptedActive = accepted.filter(b => b.status === 'accepted');
   // Alla utförda (egna publicerade + egna accepterade) — dedupliceras via id
   const completedSet = new Map();
   for (const b of myByStatus.completed) completedSet.set(b.id, b);
@@ -2893,13 +2897,13 @@ route(/^\/mine\/(open|active|completed|earned)$/, async (m, u) => {
     title = '🚛 Pågående uppdrag';
     helper = 'Accepterade uppdrag som ännu inte är slutförda — både dina publicerade och de du själv kör.';
   } else if (filter === 'completed') {
-    const myDone = allMine.filter(b => b.status === 'completed');
-    const accDone = accepted.filter(b => b.status === 'completed');
+    const myDone = allMine.filter(b => b.status === 'completed' || b.status === 'cancelled');
+    const accDone = accepted.filter(b => b.status === 'completed' || b.status === 'cancelled');
     const seen = new Map();
     for (const b of [...myDone, ...accDone]) seen.set(b.id, b);
     list = [...seen.values()].sort((a, b) => tsMs(b.completedAt) - tsMs(a.completedAt));
     title = '✅ Mina utförda körningar';
-    helper = 'Körningar du publicerat eller utfört som markerats som klara.';
+    helper = 'Körningar du publicerat eller utfört som markerats som klara, samt avbrutna uppdrag.';
   } else if (filter === 'earned') {
     list = accepted.filter(b => b.status === 'completed');
     list.sort((a, b) => tsMs(b.completedAt) - tsMs(a.completedAt));
@@ -2932,7 +2936,7 @@ async function driverDashboard(u) {
   const mine = all.filter(b => b.driverId === drv.id);
   mine.sort((a, b) => (a.loadDate || '').localeCompare(b.loadDate || ''));
   const active = mine.filter(b => b.status === 'accepted');
-  const done = mine.filter(b => b.status === 'completed');
+  const done = mine.filter(b => b.status === 'completed' || b.status === 'cancelled');
   const vehicles = await db.byIndex('vehicles', 'haulerId', drv.haulerId);
   const vById = Object.fromEntries(vehicles.map(v => [v.id, v]));
 
@@ -6239,6 +6243,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
   const statusBanner =
     b.status === 'open' ? `<div class="banner info">Körningen är <b>öppen</b>. Väntar på att en åkare ska acceptera.</div>`
     : b.status === 'accepted' ? `<div class="banner ok">Körningen är <b>accepterad</b> av ${haulerLabel}.</div>`
+    : b.status === 'cancelled' ? `<div class="banner warn">Körningen är <b>avbruten</b>${buyer.deleted ? ' – uppdragsgivaren har avslutat sitt konto' : ''}.</div>`
     : `<div class="banner warn">Körningen är <b>utförd</b> ${b.completedAt ? '(' + fmtDate(b.completedAt) + ')' : ''}.</div>`;
 
   // Admin-only: visa kontaktuppgifter för importerade bokningar
@@ -6801,7 +6806,8 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
   // Skriva: man måste vara part i konversationen (köpare eller tråd-åkare).
   // Admin som är part får också skriva — bara "ren admin" (inte involverad) blockeras.
   const isInvolved = me.id === buyer.id || me.id === threadHauler.id;
-  const canWrite = b.status !== 'completed' && isInvolved;
+  const chatClosed = b.status === 'completed' || b.status === 'cancelled' || !!buyer.deleted; // ingen att prata med, eller inget kvar att prata om
+  const canWrite = !chatClosed && isInvolved;
   const adminOnlyViewer = isAdmin && !isInvolved;
 
   // Pseudonym före accept: A för uppdragsgivare, B för motparten
@@ -6838,7 +6844,7 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
       </div>
       <div id="chat-warn" class="banner err" style="display:none;margin-top:6px"></div>`
       : adminOnlyViewer ? `<div class="muted" style="margin-top:8px;font-size:12px">Du ser chatten som admin men kan inte skriva (du är inte part i konversationen).</div>`
-      : b.status === 'completed' ? `<div class="muted" style="margin-top:8px;font-size:12px">Chatten är låst — uppdraget är utfört.</div>`
+      : chatClosed ? `<div class="muted" style="margin-top:8px;font-size:12px">Chatten är låst — ${b.status === 'cancelled' ? 'uppdraget är avbrutet' : buyer.deleted ? 'uppdragsgivaren har avslutat sitt konto' : 'uppdraget är utfört'}.</div>`
       : ''}
   `;
 
@@ -6950,7 +6956,7 @@ window.addEventListener('beforeinstallprompt', (e) => {
     // varje gång fliken får fokus igen – då ska halvifyllda formulär och chattutkast inte försvinna.
     sb.auth.onAuthStateChange((_event, session) => {
       const uid = session?.user?.id || null;
-      startup.then(() => {
+      Promise.race([startup, new Promise(r => setTimeout(r, 5000))]).then(() => { // vänta aldrig obegränsat på startkedjan
         const cur = currentUser();
         const stale = uid ? (!cur || cur.id !== uid || !!cur.__incomplete) : !!cur;
         if (!stale) return;
@@ -6961,14 +6967,15 @@ window.addEventListener('beforeinstallprompt', (e) => {
     console.error('onAuthStateChange-fel:', e);
   }
 
-  // Säkerhetsnät: om render inte körts efter 3s pga någon obekant orsak, tvinga den.
+  // Säkerhetsnät: om render inte körts efter 5 s pga någon obekant orsak, tvinga den.
+  // (Startkedjan är klar inom ~4,5 s i värsta fall: 2 s session + 2 s profil, prislistan max 2,5 s parallellt.)
   setTimeout(() => {
     const appEl = document.getElementById('app');
     if (appEl && appEl.innerHTML.length === 0) {
-      console.warn('App-DIV tom efter 3s — tvingar render()');
+      console.warn('App-DIV tom efter 5s — tvingar render()');
       try { render(); } catch (e) { console.error('Säkerhetsnät-render-fel:', e); }
     }
-  }, 3000);
+  }, 5000);
 })();
 </script>
 </body>
