@@ -820,11 +820,17 @@ async function register(data) {
   return { user: _sessionUser, needsConfirmation: false, email };
 }
 
-// Glömt lösenord: Supabase mejlar en länk som loggar in användaren tillfälligt och skickar hit #/nytt-losenord
+// Glömt lösenord: vår edge-funktion skapar återställningslänken och mejlar den via Resend (Supabases egna
+// mejl är begränsade till några per timme). Länken loggar in tillfälligt på roten och PASSWORD_RECOVERY-händelsen
+// styr till #/nytt-losenord. Svaret är alltid "ok" så ingen kan lista ut vilka adresser som har konto.
 async function sendPasswordReset(email) {
-  // Supabase byter ut allt efter # mot sin egen inloggningsbiljett, så vi skickar till roten och låter PASSWORD_RECOVERY-händelsen styra till #/nytt-losenord
-  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/` });
-  if (error) throw error;
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/send-password-reset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+    body: JSON.stringify({ email }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `fel ${r.status}`);
 }
 
 async function resendConfirmation(email, btn) {
