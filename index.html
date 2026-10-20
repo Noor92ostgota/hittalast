@@ -820,6 +820,12 @@ async function register(data) {
   return { user: _sessionUser, needsConfirmation: false, email };
 }
 
+// Glömt lösenord: Supabase mejlar en länk som loggar in användaren tillfälligt och skickar hit #/nytt-losenord
+async function sendPasswordReset(email) {
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/#/nytt-losenord` });
+  if (error) throw error;
+}
+
 async function resendConfirmation(email, btn) {
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Skickar…'; }
   try {
@@ -1317,6 +1323,9 @@ function friendlyError(e) {
   if (/Failed to fetch|Load failed|NetworkError|network request failed/i.test(m)) return 'Ingen kontakt med servern. Kontrollera täckningen och försök igen.';
   if (/bids_one_pending_per_hauler|duplicate key/i.test(m)) return 'Du har redan ett bud på den här körningen.';
   if (/JWT expired|refresh_token|session.*(expired|missing)/i.test(m)) return 'Din inloggning har gått ut. Logga in igen.';
+  if (/weak and easy to guess|pwned|leaked|compromised/i.test(m)) return 'Lösenordet finns med i kända läckor. Välj ett annat.';
+  if (/Password should be at least/i.test(m)) return 'Lösenordet är för kort.';
+  if (/rate limit|only request this after|too many requests/i.test(m)) return 'För många försök på kort tid. Vänta en stund och försök igen.';
   return m || 'Något gick fel';
 }
 
@@ -1422,7 +1431,7 @@ async function render() {
   }
 
   // Publika rutter (utan inlogg)
-  const publicHashes = ['/', '/login', '/register', '/signup', '/integritet', '/villkor'];
+  const publicHashes = ['/', '/login', '/register', '/signup', '/integritet', '/villkor', '/nytt-losenord'];
   const isPublicMagicLink = /^\/(r|opt-out|launch|accept-driver)\/[a-f0-9]+$/.test(hash);
   if (!user && !publicHashes.includes(hash) && !isPublicMagicLink) {
     return navigate('/');
@@ -1997,8 +2006,11 @@ route(/^\/login$/, async () => {
             <div class="field"><label>Lösenord</label><input name="pwd" type="password" required autocomplete="current-password"></div>
             <button type="submit" style="width:100%">Logga in</button>
           </form>
+          <div id="forgotMsg" style="display:none;margin-top:12px"></div>
           <div class="switch" style="text-align:center">
             <a id="changeType" style="cursor:pointer">↩ Ändra typ</a>
+            &nbsp;·&nbsp;
+            <a id="forgotPwd" style="cursor:pointer">Glömt lösenord?</a>
             &nbsp;·&nbsp;
             <a onclick="location.hash='#/'">Startsidan</a>
           </div>
@@ -2009,6 +2021,22 @@ route(/^\/login$/, async () => {
       userType = '';
       renderPicker();
     };
+    const forgotLink = document.getElementById('forgotPwd');
+    forgotLink.onclick = () => withLock(forgotLink, 'Skickar…', async () => {
+      const prefill = document.querySelector('#loginForm [name="email"]').value.trim();
+      const email = (prompt('Vilken e-postadress är kontot registrerat på?', prefill) || '').trim();
+      if (!email) return;
+      const msg = document.getElementById('forgotMsg');
+      try {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Det ser inte ut som en e-postadress');
+        await sendPasswordReset(email);
+        msg.className = 'banner ok'; msg.style.display = '';
+        msg.textContent = `Om ${email} har ett konto kommer ett mejl med en länk för nytt lösenord inom någon minut. Kolla skräpposten om det dröjer.`;
+      } catch (err) {
+        msg.className = 'banner err'; msg.style.display = '';
+        msg.textContent = 'Kunde inte skicka: ' + friendlyError(err);
+      }
+    });
     document.getElementById('loginForm').onsubmit = async e => {
       e.preventDefault();
       const f = new FormData(e.target);
@@ -2265,6 +2293,44 @@ route(/^\/villkor$/, async () => {
   `);
 });
 
+// --------- Nytt lösenord (via länken i återställningsmejlet, eller inloggad från Mitt konto) ---------
+route(/^\/nytt-losenord$/, async (_m, u) => {
+  document.getElementById('app').innerHTML = `
+    <div class="auth-wrap"><div class="card">
+      <div style="text-align:center;margin-bottom:16px"><img src="/logo-480.png" alt="hittalast.se" style="max-width:200px;width:80%;height:auto"></div>
+      <h2 style="text-align:center;margin-top:0">Välj nytt lösenord</h2>
+      ${u ? `
+      <p class="muted" style="text-align:center;margin-top:-8px;font-size:13px">För kontot <b>${esc(u.email || '')}</b></p>
+      <form id="newPwdForm" style="margin-top:20px">
+        <div class="field"><label>Nytt lösenord (minst 6 tecken)</label><input name="pwd" type="password" required minlength="6" autocomplete="new-password"></div>
+        <div class="field"><label>Upprepa lösenordet</label><input name="pwd2" type="password" required minlength="6" autocomplete="new-password"></div>
+        <button type="submit" style="width:100%">Spara nytt lösenord</button>
+      </form>
+      <div class="switch" style="text-align:center"><a href="#/">Avbryt</a></div>` : `
+      <p style="text-align:center">Länken är ogiltig eller har gått ut. Begär en ny via <a href="#/login">Glömt lösenord?</a> på inloggningssidan.</p>`}
+    </div></div>`;
+  const form = document.getElementById('newPwdForm');
+  if (!form) return;
+  form.onsubmit = e => {
+    e.preventDefault();
+    const f = new FormData(form);
+    const pwd = String(f.get('pwd') || ''), pwd2 = String(f.get('pwd2') || '');
+    if (pwd.length < 6) { toast('Lösenordet måste ha minst 6 tecken', 'err'); return; }
+    if (pwd !== pwd2) { toast('Lösenorden är inte lika', 'err'); return; }
+    withLock(form.querySelector('button[type=submit]'), '⏳ Sparar…', async () => {
+      try {
+        const { error } = await sb.auth.updateUser({ password: pwd });
+        if (error) throw error;
+        toast('Lösenordet är bytt och du är inloggad.');
+        await refreshSession();
+        navigate('/');
+      } catch (err) {
+        toast('Kunde inte byta lösenord: ' + friendlyError(err), 'err');
+      }
+    });
+  };
+});
+
 route(/^\/konto$/, async (_m, u) => {
   if (!u) return navigate('/login');
   mount(`
@@ -2279,6 +2345,7 @@ route(/^\/konto$/, async (_m, u) => {
       <div class="btn-row" style="margin-top:8px">
         <a class="btn secondary" href="#/integritet">Integritetspolicy</a>
         <a class="btn secondary" href="#/villkor">Villkor</a>
+        <a class="btn secondary" href="#/nytt-losenord">Byt lösenord</a>
         <a class="btn secondary" href="#/" id="logoutMe">Logga ut</a>
       </div>
     </div>
@@ -6956,6 +7023,8 @@ window.addEventListener('beforeinstallprompt', (e) => {
     // varje gång fliken får fokus igen – då ska halvifyllda formulär och chattutkast inte försvinna.
     sb.auth.onAuthStateChange((_event, session) => {
       const uid = session?.user?.id || null;
+      // Länken i "glömt lösenord"-mejlet loggar in tillfälligt och Supabase säger till här – visa sidan för nytt lösenord
+      if (_event === 'PASSWORD_RECOVERY') location.hash = '#/nytt-losenord';
       Promise.race([startup, new Promise(r => setTimeout(r, 5000))]).then(() => { // vänta aldrig obegränsat på startkedjan
         const cur = currentUser();
         const stale = uid ? (!cur || cur.id !== uid || !!cur.__incomplete) : !!cur;
