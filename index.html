@@ -4032,21 +4032,21 @@ route(/^\/available$/, async (_m, u) => {
     ? `<span style="background:#f97316;color:#fff;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:400;margin-left:8px">filtrerad: ${open.length} av ${allOpen.length}</span>`
     : '';
 
-  // Dagvy: bara Idag och Imorgon (Noors beslut 2026-10-20). Valet minns i fliken, men bara samma kalenderdag.
+  // Dagvy: Idag och Imorgon som snabbknappar, kalender för senare datum, inget bakåt (Noors beslut 2026-10-20).
+  // Valet minns i fliken, men bara samma kalenderdag.
   const todayIso = localIso(new Date());
   const shiftDay = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return localIso(d); };
   const minDay = todayIso;
-  const maxDay = shiftDay(todayIso, 1);
+  const maxDay = shiftDay(todayIso, 1); // "Imorgon"-knappen
   const [storedDay, pickedOn] = (sessionStorage.getItem('availDay') || '').split('@');
-  const day = (pickedOn === todayIso && (storedDay === todayIso || storedDay === maxDay)) ? storedDay : todayIso;
+  const day = (pickedOn === todayIso && /^\d{4}-\d{2}-\d{2}$/.test(storedDay) && storedDay >= minDay) ? storedDay : todayIso;
   const dayLabel = iso => iso === todayIso ? 'Idag' : iso === maxDay ? 'Imorgon'
     : new Date(iso + 'T12:00:00').toLocaleDateString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' });
   const dayLong = new Date(day + 'T12:00:00').toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' });
   const dated = open.filter(b => b.loadDate === day);
   const undated = open.filter(b => !b.loadDate);
   const past = open.filter(b => b.loadDate && b.loadDate < minDay); // passerat lastdatum – åkare ser dem inte, admin får en egen sektion
-  const later = open.filter(b => b.loadDate && b.loadDate > maxDay).length; // dyker upp under Imorgon dagen före lastning
-  const otherDays = later;
+  const otherDays = open.length - dated.length - undated.length - past.length; // andra kommande dagar – nås via kalendern
 
   const rowHtml = b => `
             <tr data-id="${b.id}" data-route="${esc(b.fromLocation)} → ${esc(b.toLocation)}" onclick="location.hash='#/booking/${b.id}'" style="cursor:pointer">
@@ -4078,7 +4078,7 @@ route(/^\/available$/, async (_m, u) => {
       </table>`;
 
   mount(`
-    <h2>Tillgängliga körningar <span class="muted" style="font-size:14px;font-weight:400">(${dated.length} ${dayLabel(day).toLowerCase()}${undated.length ? `, ${undated.length} utan datum` : ''}${otherDays ? `, ${otherDays} senare` : ''})</span>${filterBadge}</h2>
+    <h2>Tillgängliga körningar <span class="muted" style="font-size:14px;font-weight:400">(${dated.length} ${dayLabel(day).toLowerCase()}${undated.length ? `, ${undated.length} utan datum` : ''}${otherDays ? `, ${otherDays} andra dagar` : ''})</span>${filterBadge}</h2>
     <a href="#/planera" class="card" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:linear-gradient(135deg,#0a0a0a,#1f1f1f);color:#fff;border:1px solid var(--brand);text-decoration:none;margin-bottom:14px">
       <div style="font-size:34px;line-height:1">🧭</div>
       <div style="flex:1;min-width:220px"><b style="color:#f97316;font-size:16px">Har du en bil på väg någonstans?</b><div style="font-size:13px;color:#d4d4d8;margin-top:3px">Ange var den står och vart den ska, så hittar vi lass längs vägen som passar i tid och kapacitet — och ritar turen på karta.</div></div>
@@ -4087,7 +4087,7 @@ route(/^\/available$/, async (_m, u) => {
     <div class="btn-row" style="flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px">
       <button class="${day === todayIso ? '' : 'secondary'}" id="dayToday" style="margin:0">Idag</button>
       <button class="${day === maxDay ? '' : 'secondary'}" id="dayTomorrow" style="margin:0">Imorgon</button>
-      ${later ? `<span class="muted" style="font-size:12px">${later} st lastas senare och dyker upp under Imorgon dagen före lastning.</span>` : ''}
+      <input type="date" id="dayPick" value="${day}" min="${minDay}" title="Välj ett senare datum" style="font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:inherit">
     </div>
     <div class="btn-row" style="flex-wrap:wrap;align-items:center">
       <label class="btn secondary" style="margin:0;display:inline-flex;align-items:center;gap:8px;cursor:pointer">
@@ -4111,7 +4111,7 @@ route(/^\/available$/, async (_m, u) => {
     <div class="card">
       <h3 style="margin-top:0">📅 ${dayLabel(day)} <span class="muted" style="font-weight:400;font-size:13px">${dayLong}</span></h3>
       ${dated.length === 0
-        ? `<div class="empty">${senderFilter ? 'Inga körningar matchar valt filter den här dagen.' : `Inga körningar lastas ${dayLabel(day).toLowerCase()}.`}${otherDays ? ` <span class="muted">${otherDays} st lastas senare i veckan.</span>` : ''}</div>`
+        ? `<div class="empty">${senderFilter ? 'Inga körningar matchar valt filter den här dagen.' : `Inga körningar lastas ${dayLabel(day).toLowerCase()}.`}${otherDays ? ` <span class="muted">${otherDays} st lastas andra dagar – välj datum i kalendern.</span>` : ''}</div>`
         : tableHtml(dated, true)}
       ${undated.length ? `<details style="margin-top:14px"${dated.length === 0 ? ' open' : ''}>
         <summary style="cursor:pointer;font-weight:600">📦 Utan angivet lastdatum (${undated.length}) – kan ofta lastas när det passar</summary>
@@ -4135,6 +4135,12 @@ route(/^\/available$/, async (_m, u) => {
   const goDay = iso => { sessionStorage.setItem('availDay', iso + '@' + todayIso); navigate('/available'); };
   const dayToday = document.getElementById('dayToday'); if (dayToday) dayToday.onclick = () => goDay(todayIso);
   const dayTomorrow = document.getElementById('dayTomorrow'); if (dayTomorrow) dayTomorrow.onclick = () => goDay(maxDay);
+  const dayPick = document.getElementById('dayPick');
+  if (dayPick) dayPick.onchange = () => {
+    if (!dayPick.value) { dayPick.value = day; return; }
+    if (dayPick.value >= minDay) goDay(dayPick.value);
+    else { toast('Passerade dagar visas inte', 'err'); dayPick.value = day; }
+  };
   const ss = document.getElementById('sortSelectAvail');
   if (ss) ss.onchange = () => { setSortKey(ss.value); navigate('/available'); };
 
