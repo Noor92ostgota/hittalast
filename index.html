@@ -346,6 +346,9 @@ const TABLE_MAP = {
   notifications: 'notifications',
   freeVehicles: 'free_vehicles',
 };
+// Läsningar: bookings_v döljer buyer_id på öppna förmedlade körningar (mejlimport/speditör) för alla
+// utom uppdragsgivaren och admin. Skrivningar går mot tabellen som vanligt.
+const READ_MAP = { bookings: 'bookings_v' };
 
 // camelCase ↔ snake_case helpers
 function camelToSnake(str) { return str.replace(/([A-Z])/g, '_$1').toLowerCase(); }
@@ -372,13 +375,13 @@ function objToCamel(obj) {
 // DB-wrapper med Supabase. Bevarar gamla API:t (db.add/get/byIndex/put/del/all).
 const db = {
   async all(table) {
-    const t = TABLE_MAP[table] || table;
+    const t = READ_MAP[table] || TABLE_MAP[table] || table;
     const { data, error } = await sb.from(t).select('*');
     if (error) { console.error('db.all', t, error); throw error; }
     return (data || []).map(objToCamel);
   },
   async get(table, id) {
-    const t = TABLE_MAP[table] || table;
+    const t = READ_MAP[table] || TABLE_MAP[table] || table;
     if (!id) return null;
     const { data, error } = await sb.from(t).select('*').eq('id', id).maybeSingle();
     if (error) { console.error('db.get', t, id, error); throw error; }
@@ -395,7 +398,7 @@ const db = {
     return null;
   },
   async byIndex(table, key, value) {
-    const t = TABLE_MAP[table] || table;
+    const t = READ_MAP[table] || TABLE_MAP[table] || table;
     const col = camelToSnake(key);
     if (value === undefined || value === null) return [];
     const { data, error } = await sb.from(t).select('*').eq(col, value);
@@ -403,7 +406,7 @@ const db = {
     return (data || []).map(objToCamel);
   },
   async oneByIndex(table, key, value) {
-    const t = TABLE_MAP[table] || table;
+    const t = READ_MAP[table] || TABLE_MAP[table] || table;
     const col = camelToSnake(key);
     if (value === undefined || value === null) return null;
     const { data, error } = await sb.from(t).select('*').eq(col, value).maybeSingle();
@@ -889,6 +892,16 @@ const ROLE_LABEL = {
 function canAcceptAndPost(u) { return u && (u.role === 'akare' || u.role === 'admin'); }
 function isHauler(u) { return u && (u.role === 'akare' || u.role === 'admin'); }
 // --------- Bud + aviseringar ---------
+// Avisering till körningens uppdragsgivare utan att klienten behöver känna till buyer_id
+async function notifyBuyer(b, payload) {
+  if (!b || !b.id) return;
+  try {
+    const { error } = await sb.rpc('send_booking_notification', {
+      p_booking_id: b.id, p_type: payload.type || 'info', p_bid_id: payload.bidId || null, p_message: payload.message || '',
+    });
+    if (error) console.warn('notifyBuyer nekad:', error.message);
+  } catch (err) { console.warn('notifyBuyer-fel:', err); }
+}
 async function notify(userId, payload) {
   if (!userId) return;
   // Aldrig låt notify krascha huvudflödet — RLS-fel ska inte stoppa Slutför etc.
@@ -1139,6 +1152,12 @@ async function migrateLegacyRoles() {
 // lämnar numera medvetet kvar utförda körningar som bokföringsunderlag för motparten.)
 const STATUS_LABEL = { open: 'Öppen', accepted: 'Accepterad', completed: 'Utförd', cancelled: 'Avbruten' };
 // Part som raderat sitt konto: körningen finns kvar med bara företagsuppgifter (bookings.party_snapshots)
+const BROKER_LABEL = 'Förmedlad via Hitta last';
+// Namn som chatten maskerar/stoppar före accept. Dolda parter och platshållare räknas inte som namn.
+function partyNames(...parties) {
+  return parties.flatMap(p => (p && !p.hidden) ? [p.name, p.company] : [])
+    .filter(n => n && n !== BROKER_LABEL && n !== 'Uppdragsgivare');
+}
 function deletedParty(b, side, fallbackName) {
   const s = (b.partySnapshots || {})[side] || {};
   return { id: side === 'buyer' ? b.buyerId : b.haulerId, name: s.company || fallbackName, company: '',
@@ -6194,7 +6213,11 @@ route(/^\/booking\/([\w-]+)$/, async (m, u) => {
   if (!b) { toast('Bokningen finns inte', 'err'); return navigate('/'); }
 
   let buyer = b.buyerId ? await db.get('users', b.buyerId) : null;
-  if (!buyer) buyer = deletedParty(b, 'buyer', '(borttagen användare)');
+  // Ingen läsbar profil: raderat konto om det finns en ögonblicksbild, annars dold uppdragsgivare
+  // (förmedlad körning där vyn döljer buyer_id, eller utloggad besökare).
+  if (!buyer) buyer = b.partySnapshots?.buyer
+    ? deletedParty(b, 'buyer', '(borttagen användare)')
+    : { id: b.buyerId || null, name: 'Uppdragsgivare', company: '', email: '', phone: '', hidden: true };
   let hauler = b.haulerId ? await db.get('users', b.haulerId) : null;
   if (!hauler && (b.haulerId || b.partySnapshots?.hauler)) hauler = deletedParty(b, 'hauler', '(borttagen åkare)');
 
@@ -6255,6 +6278,13 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
     if (!haulersById[x.haulerId]) haulersById[x.haulerId] = await db.get('users', x.haulerId);
   }
 
+  // Förmedlad körning (mejlimport eller speditör som uppdragsgivare): åkare ser inte vem som
+  // står bakom förrän uppdraget är accepterat, annars ringer de speditören direkt utan Hitta last.
+  const brokered = !!(b.senderInvitationId || b.importSourceId || buyer.hidden || buyer.role === 'speditor' || buyer.name === BROKER_LABEL);
+  const hideBuyerIdentity = brokered && b.status === 'open' && !isAdmin && !isBuyer;
+  const buyerLabel = hideBuyerIdentity
+    ? `<b>${BROKER_LABEL}</b><div class="muted" style="font-size:12px">Uppdragsgivarens namn och kontaktuppgifter visas när du accepterat uppdraget.</div>`
+    : `<b>${esc(buyer.name)}</b>${buyer.company ? ' · ' + esc(buyer.company) : ''}${buyer.deleted ? ' <span class="muted">(kontot är raderat)</span>' : ''}`;
   // kontaktuppgifter — visas bara när accept + toggle på
   const buyerContact = canSeeContacts
     ? `<dt>E-post</dt><dd>${esc(buyer.email)}</dd><dt>Telefon</dt><dd>${esc(buyer.phone)}</dd>`
@@ -6459,7 +6489,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
             ${!b.adr && !b.tailLift && !b.openSide ? '<span class="muted">Inga särskilda</span>' : ''}
           </dd>
           ${hideMoney ? '' : `<dt>Pris</dt><dd>${b.price == null ? '<span class="muted">Åkare föreslår pris</span>' : `<b>${fmtMoney(b.price)}</b>`}</dd>`}
-          ${b.description ? `<dt>Beskrivning</dt><dd>${esc(b.description)}</dd>` : ''}
+          ${b.description ? `<dt>Beskrivning</dt><dd>${esc(hideBuyerIdentity ? redactContact(b.description) : b.description)}</dd>` : ''}
           <dt>Skapad</dt><dd>${fmtDate(b.createdAt)}</dd>
           ${b.acceptedAt ? `<dt>Accepterad</dt><dd>${fmtDate(b.acceptedAt)}</dd>` : ''}
           ${b.loadedAt ? `<dt>📍 Lastad</dt><dd><b style="color:#147a3d">${fmtDate(b.loadedAt)}</b></dd>` : ''}
@@ -6473,7 +6503,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       <div class="card">
         <h3>Parter</h3>
         <dl class="kv">
-          <dt>Uppdragsgivare</dt><dd><b>${esc(buyer.name)}</b>${buyer.company ? ' · ' + esc(buyer.company) : ''}${buyer.deleted ? ' <span class="muted">(kontot är raderat)</span>' : ''}</dd>
+          <dt>Uppdragsgivare</dt><dd>${buyerLabel}</dd>
           ${buyerContact}
         </dl>
         ${hauler ? `
@@ -6563,7 +6593,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         // Priset som visades på knappen skickas med – ändras det under tiden nekas accepten
         const { error } = await sb.rpc('accept_booking', { p_booking_id: b.id, p_expected_price: b.price ?? null });
         if (error) throw error;
-        await notify(b.buyerId, { type:'accepted', bookingId: b.id, message: `${me.name} har accepterat din körning ${b.fromLocation} → ${b.toLocation}.` });
+        await notifyBuyer(b, { type:'accepted', bookingId: b.id, message: `${me.name} har accepterat din körning ${b.fromLocation} → ${b.toLocation}.` });
         toast('✅ Uppdrag accepterat. Kontaktuppgifter visas nu.');
         navigate('/booking/' + b.id);
       } catch (err) {
@@ -6593,7 +6623,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
           status: 'pending',
           createdAt: Date.now(),
         });
-        await notify(b.buyerId, { type:'new_bid', bookingId: b.id, message: `Nytt bud (${fmtMoney(amount)}) från ${me.name} på ${b.fromLocation} → ${b.toLocation}.` });
+        await notifyBuyer(b, { type:'new_bid', bookingId: b.id, message: `Nytt bud (${fmtMoney(amount)}) från ${me.name} på ${b.fromLocation} → ${b.toLocation}.` });
         toast('Bud skickat — uppdragsgivaren har aviserats');
         navigate('/booking/' + b.id);
       } catch (err) {
@@ -6617,7 +6647,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         });
         if (error) throw error;
         const amount = Number(res?.amount) || 0;
-        await notify(b.buyerId, { type:'accepted', bookingId: b.id, message: `${me.name} accepterade ditt motbud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation}.` });
+        await notifyBuyer(b, { type:'accepted', bookingId: b.id, message: `${me.name} accepterade ditt motbud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation}.` });
         toast('Motbud accepterat. Kontaktuppgifter visas nu.');
         navigate('/booking/' + b.id);
       } catch (err) {
@@ -6636,7 +6666,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         if (!bid) { toast('Budet hittas inte', 'err'); return; }
         bid.rounds.push({ by:'hauler', amount, at: Date.now() });
         await db.put('bids', bid);
-        await notify(b.buyerId, { type:'counter', bookingId: b.id, message: `${me.name} svarade med motbud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation}.` });
+        await notifyBuyer(b, { type:'counter', bookingId: b.id, message: `${me.name} svarade med motbud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation}.` });
         toast('Motbud skickat');
         navigate('/booking/' + b.id);
       } catch (err) {
@@ -6652,7 +6682,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       const bid = await db.get('bids', withdrawBidBtn.dataset.bid);
       bid.status = 'withdrawn';
       await db.put('bids', bid);
-      await notify(b.buyerId, { type:'bid_withdrawn', bookingId: b.id, message: `${me.name} drog tillbaka sitt bud på ${b.fromLocation} → ${b.toLocation}.` });
+      await notifyBuyer(b, { type:'bid_withdrawn', bookingId: b.id, message: `${me.name} drog tillbaka sitt bud på ${b.fromLocation} → ${b.toLocation}.` });
       toast('Bud tillbakadraget');
       navigate('/booking/' + b.id);
     };
@@ -6721,7 +6751,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         const { error } = await sb.from('bookings').update({ loaded_at: new Date().toISOString() }).eq('id', b.id);
         if (error) throw error;
         const route = `${b.fromLocation} → ${b.toLocation}`;
-        if (b.buyerId) await notify(b.buyerId, { type:'loaded', bookingId: b.id, message: `📍 LASTAT: ${me.name} har lastat på ${route}.` });
+        await notifyBuyer(b, { type:'loaded', bookingId: b.id, message: `📍 LASTAT: ${me.name} har lastat på ${route}.` });
         if (b.haulerId && b.haulerId !== me.id) await notify(b.haulerId, { type:'loaded', bookingId: b.id, message: `📍 LASTAT: ${me.name} har lastat på ${route}.` });
         toast('📍 Markerat som lastat — båda parter aviserade');
         navigate('/booking/' + b.id);
@@ -6742,7 +6772,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         const { error } = await sb.from('bookings').update({ unloaded_at: new Date().toISOString() }).eq('id', b.id);
         if (error) throw error;
         const route = `${b.fromLocation} → ${b.toLocation}`;
-        if (b.buyerId) await notify(b.buyerId, { type:'unloaded', bookingId: b.id, message: `🏁 LOSSAT: ${me.name} har levererat på ${route}.` });
+        await notifyBuyer(b, { type:'unloaded', bookingId: b.id, message: `🏁 LOSSAT: ${me.name} har levererat på ${route}.` });
         if (b.haulerId && b.haulerId !== me.id) await notify(b.haulerId, { type:'unloaded', bookingId: b.id, message: `🏁 LOSSAT: ${me.name} har levererat på ${route}.` });
         toast('🏁 Markerat som lossat — båda parter aviserade');
         navigate('/booking/' + b.id);
@@ -6772,7 +6802,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         };
         const { error } = await sb.from('bookings').update(updates).eq('id', b.id);
         if (error) throw error;
-        await notify(b.buyerId, { type:'completed', bookingId: b.id, message: `${me.name} har utfört körningen ${b.fromLocation} → ${b.toLocation}.` });
+        await notifyBuyer(b, { type:'completed', bookingId: b.id, message: `${me.name} har utfört körningen ${b.fromLocation} → ${b.toLocation}.` });
         toast('Uppdrag markerat som utfört');
         navigate('/booking/' + b.id);
       } catch (err) {
@@ -6793,7 +6823,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         const { error } = await sb.from('bookings').update({ loaded_at: null }).eq('id', b.id);
         if (error) throw error;
         const route = `${b.fromLocation} → ${b.toLocation}`;
-        if (b.buyerId) await notify(b.buyerId, { type:'undo_load', bookingId: b.id, message: `↩ ${me.name} har ÅNGRAT lastning på ${route}.` });
+        await notifyBuyer(b, { type:'undo_load', bookingId: b.id, message: `↩ ${me.name} har ÅNGRAT lastning på ${route}.` });
         if (b.haulerId && b.haulerId !== me.id) await notify(b.haulerId, { type:'undo_load', bookingId: b.id, message: `↩ ${me.name} har ÅNGRAT lastning på ${route}.` });
         toast('↩ Lastning ångrad');
         navigate('/booking/' + b.id);
@@ -6815,7 +6845,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         const { error } = await sb.from('bookings').update({ unloaded_at: null }).eq('id', b.id);
         if (error) throw error;
         const route = `${b.fromLocation} → ${b.toLocation}`;
-        if (b.buyerId) await notify(b.buyerId, { type:'undo_unload', bookingId: b.id, message: `↩ ${me.name} har ÅNGRAT lossning på ${route}.` });
+        await notifyBuyer(b, { type:'undo_unload', bookingId: b.id, message: `↩ ${me.name} har ÅNGRAT lossning på ${route}.` });
         if (b.haulerId && b.haulerId !== me.id) await notify(b.haulerId, { type:'undo_unload', bookingId: b.id, message: `↩ ${me.name} har ÅNGRAT lossning på ${route}.` });
         toast('↩ Lossning ångrad');
         navigate('/booking/' + b.id);
@@ -6940,7 +6970,7 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
   msgs.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
   const users = {};
-  users[buyer.id] = buyer;
+  if (buyer.id) users[buyer.id] = buyer;
   users[threadHauler.id] = threadHauler;
 
   const dealClosed = b.status !== 'open';
@@ -6954,8 +6984,8 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
   // Pseudonym före accept: A för uppdragsgivare, B för motparten
   const aliasFor = (uid) => {
     if (dealClosed) return users[uid]?.name || '?';
-    if (uid === buyer.id) return 'Uppdragsgivare A';
     if (uid === threadHauler.id) return 'Åkare B';
+    if (uid === buyer.id || !buyer.id) return 'Uppdragsgivare A'; // dold uppdragsgivare: den som inte är åkaren
     return 'Användare';
   };
 
@@ -6968,8 +6998,7 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
         const who = aliasFor(m.senderId);
         let txt = m.content;
         if (!dealClosed && m.senderId !== me.id) {
-          const knownNames = [buyer.name, buyer.company, threadHauler.name, threadHauler.company].filter(Boolean);
-          txt = detectContact(txt, knownNames).masked;
+          txt = detectContact(txt, partyNames(buyer, threadHauler)).masked;
         }
         return `<div class="msg ${isMe ? 'me' : 'them'}">
           <div class="who">${esc(who)}</div>
@@ -6999,8 +7028,7 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
     const raw = txtEl.value.trim();
     if (!raw) return;
     if (!dealClosed) {
-      const knownNames = [buyer.name, buyer.company, threadHauler.name, threadHauler.company].filter(Boolean);
-      const det = detectContact(raw, knownNames);
+      const det = detectContact(raw, partyNames(buyer, threadHauler));
       if (det.hits.length > 0) {
         const w = document.getElementById('chat-warn');
         w.style.display = '';
@@ -7020,8 +7048,9 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
         content: raw,
         createdAt: Date.now(),
       });
-      const recipient = me.id === buyer.id ? threadHauler.id : buyer.id;
-      await notify(recipient, { type:'new_message', bookingId: b.id, message: `Nytt meddelande från ${aliasFor(me.id)} i chatt om ${b.fromLocation} → ${b.toLocation}.` });
+      const msgPayload = { type:'new_message', bookingId: b.id, message: `Nytt meddelande från ${aliasFor(me.id)} i chatt om ${b.fromLocation} → ${b.toLocation}.` };
+      if (buyer.id && me.id === buyer.id) await notify(threadHauler.id, msgPayload);
+      else await notifyBuyer(b, msgPayload);
       renderChatThread(b, buyer, threadHauler, me, ctx);
     } catch (err) {
       txtEl.value = raw; // lägg tillbaka texten så den inte går förlorad
