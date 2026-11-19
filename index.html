@@ -1330,6 +1330,13 @@ function detectContact(text, knownNames = []) {
   return { hits: [...new Set(hits)], masked };
 }
 function redactContact(text) { return detectContact(text).masked; }
+// Beskrivning på förmedlad körning före accept: maskera kontaktuppgifter men behåll datum och klockslag
+function redactDescription(text) {
+  if (!text) return text;
+  const keep = [];
+  const protectedText = text.replace(/d{4}-d{2}-d{2}|d{1,2}[:.]d{2}(?:s*-s*d{1,2}[:.]d{2})?/g, m => { keep.push(m); return '' + (keep.length - 1) + ''; });
+  return detectContact(protectedText).masked.replace(/(d+)/g, (_, i) => keep[+i]);
+}
 
 function toast(msg, type) {
   const host = document.getElementById('toast-host');
@@ -6489,7 +6496,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
             ${!b.adr && !b.tailLift && !b.openSide ? '<span class="muted">Inga särskilda</span>' : ''}
           </dd>
           ${hideMoney ? '' : `<dt>Pris</dt><dd>${b.price == null ? '<span class="muted">Åkare föreslår pris</span>' : `<b>${fmtMoney(b.price)}</b>`}</dd>`}
-          ${b.description ? `<dt>Beskrivning</dt><dd>${esc(hideBuyerIdentity ? redactContact(b.description) : b.description)}</dd>` : ''}
+          ${b.description ? `<dt>Beskrivning</dt><dd>${esc(hideBuyerIdentity ? redactDescription(b.description) : b.description)}</dd>` : ''}
           <dt>Skapad</dt><dd>${fmtDate(b.createdAt)}</dd>
           ${b.acceptedAt ? `<dt>Accepterad</dt><dd>${fmtDate(b.acceptedAt)}</dd>` : ''}
           ${b.loadedAt ? `<dt>📍 Lastad</dt><dd><b style="color:#147a3d">${fmtDate(b.loadedAt)}</b></dd>` : ''}
