@@ -1334,8 +1334,8 @@ function redactContact(text) { return detectContact(text).masked; }
 function redactDescription(text) {
   if (!text) return text;
   const keep = [];
-  const protectedText = text.replace(/d{4}-d{2}-d{2}|d{1,2}[:.]d{2}(?:s*-s*d{1,2}[:.]d{2})?/g, m => { keep.push(m); return '' + (keep.length - 1) + ''; });
-  return detectContact(protectedText).masked.replace(/(d+)/g, (_, i) => keep[+i]);
+  const protectedText = text.replace(/\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[:.]\d{2}(?:\s*-\s*\d{1,2}[:.]\d{2})?\b/g, m => { keep.push(m); return '\u0001' + (keep.length - 1) + '\u0001'; });
+  return detectContact(protectedText).masked.replace(/\u0001(\d+)\u0001/g, (_, i) => keep[+i]);
 }
 
 function toast(msg, type) {
