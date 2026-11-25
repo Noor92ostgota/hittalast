@@ -1292,10 +1292,8 @@ function detectContact(text, knownNames = []) {
 function redactContact(text) { return detectContact(text).masked; }
 // Beskrivning på förmedlad körning före accept: maskera kontaktuppgifter men behåll datum och klockslag
 function redactDescription(text) {
-  if (!text) return text;
-  const keep = [];
-  const protectedText = text.replace(/\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[:.]\d{2}(?:\s*-\s*\d{1,2}[:.]\d{2})?\b/g, m => { keep.push(m); return '\u0001' + (keep.length - 1) + '\u0001'; });
-  return detectContact(protectedText).masked.replace(/\u0001(\d+)\u0001/g, (_, i) => keep[+i]);
+  // detectContact skyddar själv datum och klockslag innan maskningen
+  return text ? detectContact(text).masked : text;
 }
 
 function toast(msg, type) {
