@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>hittalast.se, Sveriges digitala speditör för åkerier och transportköpare</title>
-<meta name="description" content="Hitta last förmedlar transporter som speditör enligt NSAB 2015. Åkerier registrerar sig gratis, lägger bud och fakturerar Hitta last. Transportköpare får ett avtal och en faktura, med 8 % serviceavgift på åkarpriset.">
+<meta name="description" content="Hitta last förmedlar transporter som speditör enligt NSAB 2015. Åkerier registrerar sig gratis, lägger bud och fakturerar Hitta last. Transportköpare får ett avtal och en faktura från Hitta last.">
 <link rel="icon" type="image/png" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="manifest" href="/manifest.json">
@@ -323,7 +323,7 @@
 // TRANSPORTPLATTFORM — MVP (single-file, IndexedDB)
 // Roller: åkare (kan både publicera och acceptera), chaufför, admin
 // Flöde: skapa körning → åkare accepterar → chatt → utfört. Affärsmodell: Hitta last Sverige AB är speditör (NSAB 2015)
-// på varje körning, 8 % påslag på åkarpriset betalas av uppdragsgivaren, gratis för åkerier (inget abonnemang).
+// på varje körning, påslaget på åkarpriset betalas av uppdragsgivaren, gratis för åkerier (inget abonnemang).
 // =====================================================================
 
 // --------- Supabase-anslutning ---------
@@ -347,7 +347,7 @@ const TABLE_MAP = {
 };
 // Läsningar: bookings_v döljer buyer_id på öppna förmedlade körningar (mejlimport/speditör) för alla
 // utom uppdragsgivaren och admin. Skrivningar går mot tabellen som vanligt.
-const READ_MAP = { bookings: 'bookings_v' };
+const READ_MAP = { bookings: 'bookings_v', bids: 'bids_v' }; // vyer som ger varje part sitt eget pris
 
 // camelCase ↔ snake_case helpers
 function camelToSnake(str) { return str.replace(/([A-Z])/g, '_$1').toLowerCase(); }
@@ -428,7 +428,8 @@ const db = {
     }
     // 'read' boolean (var 0/1 i gamla koden)
     if (typeof snakeObj.read === 'number') snakeObj.read = !!snakeObj.read;
-    const { data, error } = await sb.from(t).insert(snakeObj).select().single();
+    // bookings: priskolumnerna får inte läsas tillbaka från tabellen (bara via vyn), därför bara id
+    const { data, error } = await sb.from(t).insert(snakeObj).select(t === 'bookings' ? 'id' : '*').single();
     if (error) { console.error('db.add', t, error, snakeObj); throw error; }
     return objToCamel(data);
   },
@@ -516,7 +517,7 @@ async function imageUrlToDataUrl(url) {
 
 // Fakturaunderlag-PDF från en bokning. Hitta last är speditör, så det finns två dokument:
 //   kind = 'hauler'   : underlag för åkeriets faktura TILL Hitta last (åkarpris)
-//   kind = 'customer' : underlag för Hitta lasts faktura TILL uppdragsgivaren (åkarpris + 8 % serviceavgift)
+//   kind = 'customer' : underlag för Hitta lasts faktura TILL uppdragsgivaren (kundpris, påslaget specificeras inte)
 async function generateInvoicePDF(b, buyer, hauler, kind = 'hauler') {
   if (!window.jspdf) throw new Error('jsPDF-biblioteket är inte laddat ännu — vänta några sekunder och försök igen.');
   const toCustomer = kind === 'customer';
@@ -670,7 +671,7 @@ async function generateInvoicePDF(b, buyer, hauler, kind = 'hauler') {
     doc.setFont(undefined, 'bold');
     doc.text((toCustomer ? 'Att betala inkl. moms: ' : 'Att fakturera inkl. moms: ') + withVat(net).toLocaleString('sv-SE', { minimumFractionDigits: 2 }) + ' kr', M, y); y += 5;
     doc.setFont(undefined, 'normal');
-    if (toCustomer) { doc.setTextColor(120); doc.text('Varav Hitta lasts serviceavgift (8 % på åkarpriset): ' + markupOf(b).toLocaleString('sv-SE') + ' kr exkl. moms', M, y); y += 5; }
+    // Påslaget specificeras aldrig på kundens underlag: det är Hitta lasts interna sak
     doc.text('Betalningsvillkor 30 dagar netto. Ange körnings-ID ' + b.id.slice(0, 8) + ' som referens.', M, y); y += 5;
   }
   y += 5;
@@ -787,6 +788,9 @@ async function refreshSession() {
       _sessionUser = profile
         ? { ...profile, email: session.user.email }
         : { id: session.user.id, email: session.user.email, role: 'akare', name: '', __incomplete: true }; // profilen hann inte laddas – hämtas om vid nästa auth-händelse
+      // Påslaget läses bara för admin (övriga får sina priser färdigräknade från servern)
+      if (_sessionUser.role === 'admin') await Promise.race([loadMarkupRate(), new Promise(r => setTimeout(r, 2000))]);
+      else MARKUP_RATE = null;
     } else {
       _sessionUser = null;
     }
@@ -1294,29 +1298,39 @@ const BID_STATUS_LABEL = { pending: 'Väntar', accepted: 'Accepterat', rejected:
 
 // --------- Affärsmodell: Hitta last Sverige AB är speditör på varje körning ---------
 // bookings.price = det uppdragsgivaren betalar Hitta last (exkl. moms). Åkarpriset är price minus Hitta lasts
-// påslag, som är 8 % på åkarpriset. Bud (bids.rounds[].amount) anges alltid i åkarpris. Samma regler som i
-// databasen (markup_rate, gross_from_hauler, hauler_from_gross), så siffrorna stämmer överens överallt.
+// påslag. Påslaget är hemligt: det ligger i databasen (app_settings) och bara admin läser det (get_markup_rate).
+// Vyerna bookings_v/bids_v ger varje part sitt eget pris: åkeriet ser åkarpris (price = hauler_price),
+// uppdragsgivaren kundpris, admin båda. Bud sparas alltid i åkarpris men visas som kundpris för uppdragsgivaren.
 // Åkerier registrerar sig gratis: inget abonnemang, ingen månadsavgift.
-const MARKUP_RATE = 0.08;
+let MARKUP_RATE = null; // laddas bara för admin (loadMarkupRate)
+async function loadMarkupRate() {
+  try {
+    const { data, error } = await sb.rpc('get_markup_rate');
+    if (!error && data != null) MARKUP_RATE = Number(data);
+  } catch (e) { console.warn('loadMarkupRate', e); }
+}
 const VAT_RATE = 0.25;
 const HITTA_LAST = {
   company: 'Hitta last Sverige AB', orgNr: '559491-1702', vatNr: 'SE559491170201',
   email: 'info@hittalast.se', web: 'hittalast.se',
 };
-function grossFromHauler(h) { return (h == null || isNaN(h)) ? null : Math.round(Number(h) * (1 + MARKUP_RATE)); }
-function haulerFromGross(g) { return (g == null || isNaN(g)) ? null : Math.round(Number(g) / (1 + MARKUP_RATE)); }
-// Åkarens pris på en körning: före accept räknas det ur kundpriset, efter accept är påslaget sparat i commission.
-// (Körningar accepterade innan speditörsmodellen har commission 0 och inget påslag.)
+// Utan känt påslag (alla utom admin) lämnas beloppet orört: servern har redan räknat om det till rätt part
+function grossFromHauler(h) { return (h == null || isNaN(h)) ? null : (MARKUP_RATE == null ? Math.round(Number(h)) : Math.round(Number(h) * (1 + MARKUP_RATE))); }
+function haulerFromGross(g) { return (g == null || isNaN(g)) ? null : (MARKUP_RATE == null ? Math.round(Number(g)) : Math.round(Number(g) / (1 + MARKUP_RATE))); }
+// Åkarens pris på en körning: vyn ger hauler_price (åkeriet och admin), annars räknas det ur raden
 function haulerPriceOf(b) {
   if (!b || b.price == null) return null;
+  if (b.haulerPrice != null) return Number(b.haulerPrice);
   if (b.status === 'open') return haulerFromGross(b.price);
   return Number(b.price) - Number(b.commission || 0);
 }
 function customerPriceOf(b) { return (!b || b.price == null) ? null : Number(b.price); }
+// Påslaget på en körning: bara admin får underlaget (price och hauler_price), för andra blir det 0
 function markupOf(b) {
   if (!b || b.price == null) return 0;
-  if (b.status === 'open') return Number(b.price) - haulerFromGross(b.price);
-  return Number(b.commission || 0);
+  if (b.haulerPrice != null) return Number(b.price) - Number(b.haulerPrice);
+  if (b.commission != null) return Number(b.commission);
+  return 0;
 }
 function withVat(n) { return n == null ? null : Math.round(n * (1 + VAT_RATE) * 100) / 100; }
 function canSeeCommission(u) { return !!u && u.role === 'admin'; }
@@ -1987,7 +2001,7 @@ route(/^\/r\/([a-f0-9]+)$/, async (m) => {
     <p style="color:#d4d4d8;margin:0 0 24px;font-size:16px">
       Du har <strong style="color:#fff">${bookings.length} uppdrag</strong> på hittalast.se ${totalBids > 0 ? `med <strong style="color:#22c55e">${totalBids} bud</strong>` : ''}.
     </p>
-    <p style="color:#a0a0a0;margin:-12px 0 24px;font-size:14px">Hitta last Sverige AB förmedlar era laster som speditör enligt NSAB 2015. Ni får ett avtal och en faktura från Hitta last, priset nedan inkluderar vår serviceavgift på 8 %.</p>
+    <p style="color:#a0a0a0;margin:-12px 0 24px;font-size:14px">Hitta last Sverige AB förmedlar era laster som speditör enligt NSAB 2015. Ni får ett avtal och en faktura från Hitta last. Priserna nedan är vad ni betalar, exkl. moms.</p>
 
     ${bookings.length === 0 ? `
       <p style="color:#a0a0a0">Vi har inga öppna uppdrag för dig just nu. Du får ett nytt mejl när någon åkare bjuder på dina transporter.</p>
@@ -2010,7 +2024,7 @@ route(/^\/r\/([a-f0-9]+)$/, async (m) => {
             ${bids.length ? `
               <div style="background:rgba(34,197,94,0.08);padding:10px;border-radius:6px;margin-top:8px">
                 <div style="font-size:12px;color:#86efac;font-weight:700;margin-bottom:4px">${bids.length} BUD</div>
-                ${best ? `<div style="color:#fff;font-size:18px;font-weight:800">Lägsta pris till er: ${grossFromHauler(best).toLocaleString('sv-SE')} kr</div><div style="color:#a0a0a0;font-size:12px">exkl. moms, inkl. Hitta lasts serviceavgift</div>` : '<div style="color:#a0a0a0;font-size:13px">Skapa konto nedan för att se detaljer</div>'}
+                ${best ? `<div style="color:#fff;font-size:18px;font-weight:800">Lägsta pris till er: ${Number(best).toLocaleString('sv-SE')} kr</div><div style="color:#a0a0a0;font-size:12px">exkl. moms, via Hitta last</div>` : '<div style="color:#a0a0a0;font-size:13px">Skapa konto nedan för att se detaljer</div>'}
               </div>
             ` : '<div style="color:#6b7280;font-size:12px;font-style:italic;margin-top:6px">Inga bud än — vi mejlar dig så fort en åkare bjuder.</div>'}
           </div>`;
@@ -2418,7 +2432,7 @@ route(/^\/villkor$/, async () => {
       <li>Åkeri och uppdragsgivare får inte varandras kontaktuppgifter. All kommunikation om ett uppdrag sker anonymt i tjänstens chatt, som Hitta last förmedlar, eller via Hitta last. Det är inte tillåtet att dela kontaktuppgifter eller diskutera pris i chatten; priser hanteras genom bud och accept.</li>
     </ul>
     <h3>Pris och fakturering</h3>
-    <p>Det är gratis för åkerier att registrera sig och använda tjänsten: inget abonnemang, ingen månadsavgift. Det pris åkeriet lämnar eller accepterar (åkarpriset) är det belopp åkeriet fakturerar Hitta last Sverige AB efter utförd transport, med körnings-ID som referens. Uppdragsgivaren betalar åkarpriset plus Hitta lasts serviceavgift på 8 % och faktureras av Hitta last. Alla priser anges exklusive moms. Betalningsvillkor 30 dagar netto om inget annat avtalats. Fakturaunderlag för båda parter finns i tjänsten.</p>
+    <p>Det är gratis för åkerier att registrera sig och använda tjänsten: inget abonnemang, ingen månadsavgift. Det pris åkeriet lämnar eller accepterar (åkarpriset) är det belopp åkeriet fakturerar Hitta last Sverige AB efter utförd transport, med körnings-ID som referens. Uppdragsgivaren betalar det pris som visas i tjänsten och faktureras av Hitta last; i det priset ingår Hitta lasts ersättning för förmedlingen. Alla priser anges exklusive moms. Betalningsvillkor 30 dagar netto om inget annat avtalats. Fakturaunderlag för båda parter finns i tjänsten.</p>
     <h3>Ansvar</h3>
     <p>Hitta last Sverige AB:s ansvar för gods, dröjsmål och övrig skada i förmedlade transporter är begränsat enligt NSAB 2015 och, för inrikes vägtransport, lag (1974:610) om inrikes vägtransport. Åkeriet ansvarar gentemot Hitta last för utförandet enligt samma bestämmelser. Reklamation ska ske utan dröjsmål, synlig skada vid mottagandet och dold skada inom sju dagar. Tjänsten tillhandahålls i befintligt skick; vi strävar efter hög tillgänglighet men kan inte garantera att den alltid är fri från avbrott eller fel. Hitta last ansvarar inte för uppgifter som en användare lämnat.</p>
     <h3>Avstängning och uppsägning</h3>
@@ -2570,8 +2584,8 @@ route(/^\/invoices$/, async (_m, u) => {
       <span class="muted">${filteredBookings.length} av ${allBookings.length} utförda körning${allBookings.length === 1 ? '' : 'ar'}</span>
     </div>
     <div class="banner info">${isAdminView
-      ? 'Alla utförda körningar. Två underlag per körning: åkeriets faktura till Hitta last (åkarpris) och Hitta lasts faktura till uppdragsgivaren (åkarpris + 8 % serviceavgift).'
-      : `Hitta last är speditör på alla körningar. Som åkeri fakturerar du <b>${HITTA_LAST.company}</b>, org.nr ${HITTA_LAST.orgNr}, åkarpriset för varje utförd körning: ladda ned underlaget och bifoga det på din faktura. Som uppdragsgivare får du Hitta lasts faktura på åkarpriset plus 8 % serviceavgift, underlaget finns här.`}</div>
+      ? 'Alla utförda körningar. Två underlag per körning: åkeriets faktura till Hitta last (åkarpris) och Hitta lasts faktura till uppdragsgivaren (kundpris).'
+      : `Hitta last är speditör på alla körningar. Som åkeri fakturerar du <b>${HITTA_LAST.company}</b>, org.nr ${HITTA_LAST.orgNr}, åkarpriset för varje utförd körning: ladda ned underlaget och bifoga det på din faktura. Som uppdragsgivare får du Hitta lasts faktura på det pris du accepterat, underlaget finns här.`}</div>
 
     ${allBookings.length === 0 ? `<div class="card"><div class="empty">Inga utförda körningar än. När en bokning markeras som utförd visas den här.</div></div>` : `
       <div class="card" style="margin-bottom:14px">
@@ -2889,13 +2903,13 @@ async function publicDashboard() {
             ${eyebrow}
             <h1 class="landing-h1">Minska <span class="accent">tomkörningar</span>, öka lönsamheten och maximera kapaciteten i varje fordon.</h1>
             <p class="landing-sub">
-              Hitta last är en digital speditör för åkerier och transportköpare. Vi förmedlar körningar enligt NSAB 2015: du lägger bud eller accepterar direkt, kör och fakturerar Hitta last. Gratis för åkerier, serviceavgiften på 8 % betalas av uppdragsgivaren.
+              Hitta last är en digital speditör för åkerier och transportköpare. Vi förmedlar körningar enligt NSAB 2015: du lägger bud eller accepterar direkt, kör och fakturerar Hitta last. Gratis för åkerier, inget abonnemang.
             </p>
             <ul class="landing-bullets">
               <li>Gratis för åkerier, inget abonnemang</li>
               <li>Hitta last förmedlar som speditör enligt NSAB 2015</li>
               <li>En motpart: du fakturerar Hitta last, vi fakturerar uppdragsgivaren</li>
-              <li>8 % serviceavgift på åkarpriset, inget annat</li>
+              <li>Tydliga priser: åkeriet ser sitt pris, uppdragsgivaren sitt</li>
               <li>Färre mejl, alla uppdrag samlade på ett ställe</li>
             </ul>
             ${launched ? '' : `<div class="countdown" id="countdown">${renderCountdown()}</div>`}
@@ -2923,12 +2937,12 @@ async function publicDashboard() {
           <div class="feature">
             <span class="feature-icon">📦</span>
             <h3>Erbjud last</h3>
-            <p>Publicera körningar och nå hundratals åkerier. Hitta last tar hand om avtal, fakturering och uppföljning som speditör. Du betalar åkarpriset plus 8 %.</p>
+            <p>Publicera körningar och nå hundratals åkerier. Hitta last tar hand om avtal, fakturering och uppföljning som speditör. Du ser ett pris, exkl. moms, och får en faktura från Hitta last.</p>
           </div>
           <div class="feature">
             <span class="feature-icon">🧾</span>
             <h3>Så fungerar det</h3>
-            <p>1. Åkeriet lägger bud (åkarpris). 2. Uppdragsgivaren accepterar, priset visas inklusive 8 % serviceavgift. 3. Åkeriet kör och laddar upp fraktsedel. 4. Åkeriet fakturerar Hitta last, Hitta last fakturerar uppdragsgivaren.</p>
+            <p>1. Åkeriet lägger bud (åkarpris). 2. Uppdragsgivaren ser sitt pris och accepterar. 3. Åkeriet kör och laddar upp fraktsedel. 4. Åkeriet fakturerar Hitta last, Hitta last fakturerar uppdragsgivaren.</p>
           </div>
         </div>
 
@@ -3104,7 +3118,7 @@ route(/^\/mine\/(open|active|completed|earned)$/, async (m, u) => {
   if (filter === 'open') {
     list = allMine.filter(b => b.status === 'open');
     title = '📂 Mina öppna körningar';
-    helper = 'Körningar du publicerat och som väntar på åkare. Priset är det du betalar Hitta last, inkl. serviceavgift.';
+    helper = 'Körningar du publicerat och som väntar på åkare. Priset är det du betalar Hitta last, exkl. moms.';
     perspective = 'buyer';
     list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()); // ISO-strängar från databasen
   } else if (filter === 'active') {
@@ -3242,7 +3256,7 @@ async function buyerDashboard(u) {
       <div class="stat"><div class="val">${byStatus.open.length}</div><div class="lbl">Öppna</div></div>
       <div class="stat"><div class="val">${byStatus.accepted.length}</div><div class="lbl">Accepterade</div></div>
       <div class="stat"><div class="val">${byStatus.completed.length}</div><div class="lbl">Utförda</div></div>
-      <div class="stat"><div class="val">${fmtMoney(byStatus.completed.reduce((s, b) => s + (customerPriceOf(b) || 0), 0))}</div><div class="lbl">Summa (utförda, inkl. serviceavgift)</div></div>
+      <div class="stat"><div class="val">${fmtMoney(byStatus.completed.reduce((s, b) => s + (customerPriceOf(b) || 0), 0))}</div><div class="lbl">Summa (utförda, exkl. moms)</div></div>
     </div>
     <div class="card">
       ${all.length === 0
@@ -3288,7 +3302,7 @@ function cellPallplatser(b) { return b.pallets ? `<b>${b.pallets}</b>` : '<span 
 
 function renderBookingTable(list, perspective, senderMap, uid) {
   const showSender = !!senderMap;
-  // Åkarpris när jag är utförande åkare, annars kundpris (inkl. serviceavgift)
+  // Åkarpris när jag är utförande åkare, annars kundpris
   const rowPrice = (b) => {
     const asHauler = perspective === 'hauler' || (perspective === 'mixed' && uid && b.haulerId === uid && b.buyerId !== uid);
     return asHauler ? fmtMoney(haulerPriceOf(b)) : fmtMoney(customerPriceOf(b));
@@ -3379,7 +3393,7 @@ route(/^\/new$/, async (_m, u) => {
         <div class="row-3">
           <div class="field"><label>Lastningsdag</label><input name="loadDate" type="date" required></div>
           <div class="field"><label>Lastningstid</label><input name="loadTime" type="time"></div>
-          <div class="field"><label>Pris du betalar (kr, exkl. moms) <span class="muted">— valfritt</span></label><input name="price" type="number" min="0" step="1" placeholder="Lämna tomt → åkare föreslår pris"><div class="muted" id="priceHelp" style="font-size:12px;margin-top:4px">Inkl. Hitta lasts serviceavgift (8 % på åkarpriset). Lämna tomt så lägger åkerierna bud.</div></div>
+          <div class="field"><label>Pris du betalar (kr, exkl. moms) <span class="muted">— valfritt</span></label><input name="price" type="number" min="0" step="1" placeholder="Lämna tomt → åkare föreslår pris"><div class="muted" id="priceHelp" style="font-size:12px;margin-top:4px">Exkl. moms. Lämna tomt så lägger åkerierna bud.</div></div>
         </div>
         <div class="row-3">
           <div class="field"><label>Lossningsdag</label><input name="unloadDate" type="date" required></div>
@@ -3449,15 +3463,16 @@ route(/^\/new$/, async (_m, u) => {
       : '⚠ Kunde inte tolka texten. Fyll i manuellt.';
   };
 
-  // Visar vad åkeriet får när uppdragsgivaren skriver sitt pris (inkl. serviceavgift)
+  // Bara admin ser vad åkeriet får av priset: påslaget är hemligt för övriga
   function priceHelpUpdate() {
     const inp = document.querySelector('#newForm input[name="price"]');
     const help = document.getElementById('priceHelp');
     if (!inp || !help) return;
     const v = Number(inp.value);
-    help.textContent = (v > 0)
-      ? `Åkeriet får ${fmtMoney(haulerFromGross(v))}, Hitta lasts serviceavgift ${fmtMoney(v - haulerFromGross(v))}. Allt exkl. moms.`
-      : 'Inkl. Hitta lasts serviceavgift (8 % på åkarpriset). Lämna tomt så lägger åkerierna bud.';
+    const admin = canSeeCommission(currentUserSync()) && MARKUP_RATE != null;
+    help.textContent = (v > 0 && admin)
+      ? `Åkeriet får ${fmtMoney(haulerFromGross(v))}, Hitta lasts påslag ${fmtMoney(v - haulerFromGross(v))}. Allt exkl. moms.`
+      : 'Exkl. moms. Lämna tomt så lägger åkerierna bud.';
   }
   const priceInput = document.querySelector('#newForm input[name="price"]');
   if (priceInput) priceInput.addEventListener('input', priceHelpUpdate);
@@ -3516,7 +3531,7 @@ async function haulerDashboard(u) {
       <div class="stat"><div class="val">${byStatus.accepted.length}</div><div class="lbl">Accepterade</div></div>
       <div class="stat"><div class="val">${byStatus.completed.length}</div><div class="lbl">Utförda</div></div>
       <div class="stat"><div class="val">${fmtMoney(totalEarned)}</div><div class="lbl">Åkarpris (utförda)</div></div>
-      ${canSeeCommission(u) ? `<div class="stat"><div class="val">${fmtMoney(byStatus.completed.reduce((s, b) => s + markupOf(b), 0))}</div><div class="lbl">Serviceavgift 8 %</div></div>` : ''}
+      ${canSeeCommission(u) ? `<div class="stat"><div class="val">${fmtMoney(byStatus.completed.reduce((s, b) => s + markupOf(b), 0))}</div><div class="lbl">Påslag (Hitta last)</div></div>` : ''}
     </div>
     <div class="card">
       ${mine.length === 0
@@ -5926,13 +5941,13 @@ route(/^\/stats$/, async (_m, u) => {
       <div class="stat"><div class="val">${acceptedInRange.length}</div><div class="lbl">Accepterade uppdrag</div></div>
       <div class="stat"><div class="val">${completedInRange.length}</div><div class="lbl">Utförda uppdrag</div></div>
       <div class="stat"><div class="val">${fmtMoney(omsattning)}</div><div class="lbl">Åkarpris (utförda)</div></div>
-      ${canSeeCommission(u) ? `<div class="stat"><div class="val">${fmtMoney(provBetald)}</div><div class="lbl">Serviceavgift 8 %</div></div>
+      ${canSeeCommission(u) ? `<div class="stat"><div class="val">${fmtMoney(provBetald)}</div><div class="lbl">Påslag (Hitta last)</div></div>
       <div class="stat"><div class="val">${fmtMoney(netto)}</div><div class="lbl">Kundpris totalt</div></div>` : ''}
     </div>
     <div class="card">
       <h3>Utförda uppdrag i perioden</h3>
       ${completedInRange.length === 0 ? `<div class="empty">Inga utförda uppdrag i vald period.</div>` : `<table>
-        <thead><tr><th>Datum</th><th>Från → Till</th><th>Åkarpris</th>${canSeeCommission(u) ? '<th>Serviceavgift</th><th>Kundpris</th>' : ''}</tr></thead>
+        <thead><tr><th>Datum</th><th>Från → Till</th><th>Åkarpris</th>${canSeeCommission(u) ? '<th>Påslag</th><th>Kundpris</th>' : ''}</tr></thead>
         <tbody>${completedInRange.sort((a,b)=>tsMs(b.completedAt)-tsMs(a.completedAt)).map(b => `<tr>
           <td>${fmtDate(b.completedAt)}</td>
           <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
@@ -5954,7 +5969,7 @@ route(/^\/stats$/, async (_m, u) => {
   };
 });
 
-// --------- Admin: Avräkning (serviceavgift per utförd körning) ---------
+// --------- Admin: Avräkning (påslag per utförd körning) och inställning av påslaget ---------
 route(/^\/settlement$/, async (_m, u) => {
   if (!u || u.role !== 'admin') return navigate('/');
   const params = new URLSearchParams((location.hash.split('?')[1]) || '');
@@ -5986,7 +6001,17 @@ route(/^\/settlement$/, async (_m, u) => {
     .map(p => `<option value="${p}" ${p===period?'selected':''}>${({month:'Denna månad',lastmonth:'Förra månaden',year:'Detta år',all:'Allt'})[p]}</option>`).join('');
   mount(`
     <h2>💼 Avräkning</h2>
-    <div class="banner info">Hitta last är speditör på varje körning: åkeriet fakturerar Hitta last åkarpriset, Hitta last fakturerar uppdragsgivaren åkarpriset plus 8 % serviceavgift. Här ser du underlaget per utförd körning. Belopp exkl. moms.</div>
+    <div class="banner info">Hitta last är speditör på varje körning: åkeriet fakturerar Hitta last åkarpriset, Hitta last fakturerar uppdragsgivaren kundpriset (åkarpris plus påslag). Här ser du underlaget per utförd körning. Belopp exkl. moms.</div>
+    <div class="card" id="markupCard">
+      <h3>🔒 Provisionspåslag</h3>
+      <div class="muted" style="font-size:12px;margin-bottom:8px">Påslaget läggs på åkarpriset och ger kundpriset. Bara du som admin ser det, åkerier och uppdragsgivare ser bara sitt eget pris. Ändringen gäller nya bud och öppna körningar direkt, redan accepterade körningar behåller sitt sparade påslag.</div>
+      <form id="markupForm" class="btn-row" style="align-items:center">
+        <label class="muted">Påslag i procent:</label>
+        <input type="number" name="rate" min="0" max="50" step="0.1" value="${MARKUP_RATE != null ? String(Math.round(MARKUP_RATE * 10000) / 100) : ''}" style="width:90px" required>
+        <button type="submit">Spara</button>
+        <span class="muted" style="font-size:12px">${MARKUP_RATE != null ? `Just nu ${(MARKUP_RATE * 100).toLocaleString('sv-SE')} %: åkarpris 10 000 kr ger kundpris ${fmtMoney(grossFromHauler(10000))}` : 'Kunde inte läsa påslaget, ladda om sidan'}</span>
+      </form>
+    </div>
     <div class="card">
       <form id="settleForm" class="btn-row" style="align-items:center">
         <label class="muted">Period (utförd):</label>
@@ -5999,11 +6024,11 @@ route(/^\/settlement$/, async (_m, u) => {
       <div class="stat"><div class="val">${all.length}</div><div class="lbl">Utförda körningar</div></div>
       <div class="stat"><div class="val">${fmtMoney(sumH)}</div><div class="lbl">Att betala åkerier (åkarpris)</div></div>
       <div class="stat"><div class="val">${fmtMoney(sumC)}</div><div class="lbl">Att fakturera uppdragsgivare</div></div>
-      <div class="stat"><div class="val">${fmtMoney(sumM)}</div><div class="lbl">Serviceavgift 8 % (Hitta lasts intäkt)</div></div>
+      <div class="stat"><div class="val">${fmtMoney(sumM)}</div><div class="lbl">Påslag (Hitta lasts intäkt)</div></div>
     </div>
     <div class="card">
       ${all.length === 0 ? `<div class="empty">Inga utförda körningar i perioden.</div>` : `<table class="compact">
-        <thead><tr><th>Utförd</th><th>Från → Till</th><th>Uppdragsgivare</th><th>Åkeri</th><th>Åkarpris</th><th>Serviceavgift</th><th>Kundpris</th><th></th></tr></thead>
+        <thead><tr><th>Utförd</th><th>Från → Till</th><th>Uppdragsgivare</th><th>Åkeri</th><th>Åkarpris</th><th>Påslag</th><th>Kundpris</th><th></th></tr></thead>
         <tbody>${all.map(b => `<tr>
           <td class="nowrap">${b.completedAt ? new Date(b.completedAt).toLocaleDateString('sv-SE') : '—'}</td>
           <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
@@ -6017,6 +6042,16 @@ route(/^\/settlement$/, async (_m, u) => {
       </table>`}
     </div>
   `);
+  document.getElementById('markupForm').onsubmit = async e => {
+    e.preventDefault();
+    const pct = Number(new FormData(e.target).get('rate'));
+    if (!isFinite(pct) || pct < 0 || pct > 50) { toast('Ange ett påslag mellan 0 och 50 procent', 'err'); return; }
+    const { data, error } = await sb.rpc('set_markup_rate', { p_rate: pct / 100 });
+    if (error) { toast('Kunde inte spara: ' + friendlyError(error), 'err'); return; }
+    MARKUP_RATE = Number(data);
+    toast(`Påslaget är nu ${(MARKUP_RATE * 100).toLocaleString('sv-SE')} %`);
+    render();
+  };
   document.getElementById('settleForm').onsubmit = e => {
     e.preventDefault();
     location.hash = '#/settlement?period=' + new FormData(e.target).get('period');
@@ -6187,7 +6222,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       actions = `
         <div class="field bid-field"><label>Lägg ett bud: ditt åkarpris (kr, exkl. moms)</label>
           <input type="number" id="bidAmount" min="1" step="1" placeholder="t.ex. 8500" required></div>
-        <div class="muted" style="font-size:12px;margin-bottom:8px">Uppdragsgivaren ser ditt pris plus Hitta lasts serviceavgift (8 %). Accepteras budet fakturerar du Hitta last beloppet du angett.</div>
+        <div class="muted" style="font-size:12px;margin-bottom:8px">Accepteras budet fakturerar du Hitta last beloppet du angett, exkl. moms.</div>
         <button id="placeBidBtn" class="ok">💰 Lägg bud</button>`;
     }
   }
@@ -6235,6 +6270,8 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
   }
 
   let bidsBlock = '';
+  // bids_v ger uppdragsgivaren budbeloppen redan som kundpris; admin läser åkarpris och räknar upp med påslaget
+  const bidShown = (x) => isAdmin ? grossFromHauler(x) : Number(x);
   if (isBuyer && b.status === 'open') {
     if (bids.length === 0) {
       bidsBlock = b.price == null
@@ -6242,8 +6279,8 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         : '';
     } else {
       bidsBlock = `<div class="card"><h3>Inkomna bud (${bids.length})</h3>
-        ${b.price != null ? `<div class="muted" style="margin-bottom:8px">Ditt föreslagna pris: <b>${fmtMoney(b.price)}</b> exkl. moms (inkl. Hitta lasts serviceavgift)</div>` : ''}
-        <div class="muted" style="margin-bottom:8px;font-size:12px">Beloppen nedan är vad du betalar Hitta last exkl. moms. Hitta lasts serviceavgift på 8 % av åkarpriset ingår.</div>
+        ${b.price != null ? `<div class="muted" style="margin-bottom:8px">Ditt föreslagna pris: <b>${fmtMoney(b.price)}</b> exkl. moms</div>` : ''}
+        <div class="muted" style="margin-bottom:8px;font-size:12px">Beloppen nedan är vad du betalar Hitta last, exkl. moms.</div>
         <table>
           <thead><tr><th>Åkare</th><th>Senaste bud (ditt pris)</th><th>Status</th><th>Historik</th><th></th></tr></thead>
           <tbody>
@@ -6251,18 +6288,18 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
             const h = haulersById[bd.haulerId];
             const last = latestBidAmount(bd);
             const lastBy = latestBidBy(bd);
-            const history = bd.rounds.map(r => `${r.by==='hauler'?'Åkare':'Du'}: ${fmtMoney(grossFromHauler(r.amount))}`).join(' → ');
+            const history = bd.rounds.map(r => `${r.by==='hauler'?'Åkare':'Du'}: ${fmtMoney(bidShown(r.amount))}`).join(' → ');
             const statusLabel = bd.status === 'pending'
               ? (lastBy === 'hauler' ? 'Väntar på ditt svar' : 'Motbud skickat — väntar på åkare')
               : (BID_STATUS_LABEL[bd.status] || bd.status);
             const canAct = bd.status === 'pending' && lastBy === 'hauler';
             return `<tr>
               <td><b>${isAdmin ? esc(h?.name || '?') + (h?.company ? ' · ' + esc(h.company) : '') : haulerAlias(bd.haulerId)}</b></td>
-              <td><b>${fmtMoney(grossFromHauler(last))}</b></td>
+              <td><b>${fmtMoney(bidShown(last))}</b></td>
               <td>${esc(statusLabel)}</td>
               <td class="muted" style="font-size:12px">${esc(history)}</td>
               <td>${canAct ? `
-                <button class="ok" data-acceptbid="${bd.id}" data-amount="${esc(grossFromHauler(last))}">✓ Acceptera ${fmtMoney(grossFromHauler(last))}</button>
+                <button class="ok" data-acceptbid="${bd.id}" data-amount="${esc(bidShown(last))}">✓ Acceptera ${fmtMoney(bidShown(last))}</button>
                 <input type="number" min="1" step="1" data-counter-input="${bd.id}" placeholder="Motbud (ditt pris)" class="counter-inp">
                 <button class="secondary" data-counterbid="${bd.id}">↩ Motbud</button>
                 <button class="danger" data-rejectbid="${bd.id}">Avslå</button>` : ''}</td>
@@ -6352,9 +6389,9 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
             ${!b.adr && !b.tailLift && !b.openSide ? '<span class="muted">Inga särskilda</span>' : ''}
           </dd>
           ${hideMoney ? '' : (isAdmin
-            ? `<dt>Kundpris</dt><dd>${b.price == null ? '<span class="muted">Åkare föreslår pris</span>' : `<b>${fmtMoney(customerPriceOf(b))}</b> exkl. moms <span class="muted">· åkarpris ${fmtMoney(haulerPriceOf(b))} · serviceavgift ${fmtMoney(markupOf(b))}</span>`}</dd>`
+            ? `<dt>Kundpris</dt><dd>${b.price == null ? '<span class="muted">Åkare föreslår pris</span>' : `<b>${fmtMoney(customerPriceOf(b))}</b> exkl. moms <span class="muted">· åkarpris ${fmtMoney(haulerPriceOf(b))} · påslag ${fmtMoney(markupOf(b))}</span>`}</dd>`
             : isBuyer
-            ? `<dt>Pris</dt><dd>${b.price == null ? '<span class="muted">Åkare föreslår pris</span>' : `<b>${fmtMoney(customerPriceOf(b))}</b> <span class="muted">exkl. moms, inkl. Hitta lasts serviceavgift</span>`}</dd>`
+            ? `<dt>Pris</dt><dd>${b.price == null ? '<span class="muted">Åkare föreslår pris</span>' : `<b>${fmtMoney(customerPriceOf(b))}</b> <span class="muted">exkl. moms, faktureras av Hitta last</span>`}</dd>`
             : `<dt>Ditt pris</dt><dd>${b.price == null ? '<span class="muted">Du föreslår pris</span>' : `<b>${fmtMoney(haulerPriceOf(b))}</b> <span class="muted">exkl. moms, fakturerar du Hitta last</span>`}</dd>`)}
           ${b.description ? `<dt>Beskrivning</dt><dd>${esc(hideBuyerIdentity ? redactDescription(b.description) : b.description)}</dd>` : ''}
           <dt>Skapad</dt><dd>${fmtDate(b.createdAt)}</dd>
@@ -6442,11 +6479,9 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       document.getElementById('assignForm').onsubmit = async e => {
         e.preventDefault();
         const f = new FormData(e.target);
-        const fresh = await db.get('bookings', b.id);
-        fresh.vehicleId = f.get('vehicleId') || null;
-        fresh.driverId = f.get('driverId') || null;
-        fresh.assignedAt = new Date().toISOString();
-        await db.put('bookings', fresh);
+        // Bara de tre fälten uppdateras: priskolumnerna får aldrig skrivas från appen
+        const { error: asgErr2 } = await sb.from('bookings').update({ vehicle_id: f.get('vehicleId') || null, driver_id: f.get('driverId') || null, assigned_at: new Date().toISOString() }).eq('id', b.id);
+        if (asgErr2) { toast('Kunde inte spara: ' + friendlyError(asgErr2), 'err'); return; }
         toast('Tilldelning sparad');
         navigate('/booking/' + b.id);
       };
@@ -6488,13 +6523,10 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         const fresh = await db.get('bookings', b.id);
         if (!fresh) { toast('Bokningen finns inte', 'err'); return navigate('/'); }
         if (fresh.status !== 'open') { toast('Körningen är inte längre öppen', 'err'); return navigate('/'); }
-        await db.add('bids', {
-          bookingId: b.id, haulerId: me.id,
-          rounds: [{ by:'hauler', amount, at: Date.now() }],
-          status: 'pending',
-          createdAt: Date.now(),
-        });
-        await notifyBuyer(b, { type:'new_bid', bookingId: b.id, message: `Nytt bud (${fmtMoney(grossFromHauler(amount))}) på ${b.fromLocation} → ${b.toLocation}.` });
+        // Budet läggs via databasfunktion: beloppet är åkarpris, uppdragsgivaren ser sitt pris via bids_v
+        const { data: bidId, error: bidErr } = await sb.rpc('place_bid', { p_booking_id: b.id, p_amount: amount });
+        if (bidErr) throw bidErr;
+        await notifyBuyer(b, { type:'new_bid', bookingId: b.id, bidId, message: `Nytt bud på ${b.fromLocation} → ${b.toLocation}.` });
         toast('Bud skickat, uppdragsgivaren har aviserats');
         navigate('/booking/' + b.id);
       } catch (err) {
@@ -6517,9 +6549,8 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
           p_bid_id: acceptCounterBtn.dataset.bid, p_expected_amount: isFinite(shown) && shown > 0 ? shown : null,
         });
         if (error) throw error;
-        const amount = Number(res?.amount) || 0;
-        const gross = Number(res?.gross) || grossFromHauler(amount);
-        await notifyBuyer(b, { type:'accepted', bookingId: b.id, message: `${me.name} accepterade ditt motbud ${fmtMoney(gross)} på ${b.fromLocation} → ${b.toLocation}.` });
+        if (!res) console.warn('accept_counter_offer gav inget svar');
+        await notifyBuyer(b, { type:'accepted', bookingId: b.id, message: `Motbudet på ${b.fromLocation} → ${b.toLocation} accepterades.` });
         toast('Motbud accepterat. Lastningsuppgifter får du via Hitta last i chatten.');
         navigate('/booking/' + b.id);
       } catch (err) {
@@ -6534,11 +6565,9 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       try {
         const amount = Number((document.getElementById('newCounter') || {}).value);
         if (!amount || amount <= 0) { toast('Ange ett giltigt belopp', 'err'); return; }
-        const bid = await db.get('bids', counterBackBtn.dataset.bid);
-        if (!bid) { toast('Budet hittas inte', 'err'); return; }
-        bid.rounds.push({ by:'hauler', amount, at: Date.now() });
-        await db.put('bids', bid);
-        await notifyBuyer(b, { type:'counter', bookingId: b.id, message: `${me.name} svarade med motbud ${fmtMoney(grossFromHauler(amount))} på ${b.fromLocation} → ${b.toLocation}.` });
+        const { error: cbErr } = await sb.rpc('hauler_counter_offer', { p_bid_id: counterBackBtn.dataset.bid, p_amount: amount });
+        if (cbErr) throw cbErr;
+        await notifyBuyer(b, { type:'counter', bookingId: b.id, bidId: counterBackBtn.dataset.bid, message: `Åkeriet svarade med motbud på ${b.fromLocation} → ${b.toLocation}.` });
         toast('Motbud skickat');
         navigate('/booking/' + b.id);
       } catch (err) {
@@ -6551,9 +6580,8 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
   if (withdrawBidBtn) {
     withdrawBidBtn.onclick = async () => {
       if (!confirm('Dra tillbaka ditt bud?')) return;
-      const bid = await db.get('bids', withdrawBidBtn.dataset.bid);
-      bid.status = 'withdrawn';
-      await db.put('bids', bid);
+      const { error: wErr } = await sb.rpc('withdraw_bid', { p_bid_id: withdrawBidBtn.dataset.bid });
+      if (wErr) { toast('Kunde inte dra tillbaka budet: ' + friendlyError(wErr), 'err'); return; }
       await notifyBuyer(b, { type:'bid_withdrawn', bookingId: b.id, message: `${me.name} drog tillbaka sitt bud på ${b.fromLocation} → ${b.toLocation}.` });
       toast('Bud tillbakadraget');
       navigate('/booking/' + b.id);
@@ -6572,8 +6600,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
           p_bid_id: btn.dataset.acceptbid, p_expected_amount: isFinite(shown) && shown > 0 ? shown : null,
         });
         if (error) throw error;
-        const amount = Number(res?.amount) || 0;
-        await notify(res.hauler_id, { type:'bid_accepted', bookingId: b.id, message: `Ditt bud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation} accepterades.` });
+        await notify(res?.hauler_id, { type:'bid_accepted', bookingId: b.id, message: `Ditt bud på ${b.fromLocation} → ${b.toLocation} accepterades.` });
         toast('Bud accepterat — körningen tilldelad');
         navigate('/booking/' + b.id);
       } catch (err) {
@@ -6588,16 +6615,13 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       try {
         const id = btn.dataset.counterbid;
         const inp = document.querySelector(`input[data-counter-input="${id}"]`);
-        // Uppdragsgivaren skriver sitt pris (inkl. serviceavgift); budet sparas i åkarpris
+        // Uppdragsgivaren skriver sitt pris; databasen räknar om till åkarpris och sparar budet
         const typed = Number(inp && inp.value);
-        const amount = haulerFromGross(typed);
-        if (!typed || typed <= 0 || !amount || amount <= 0) { toast('Ange ett giltigt motbud', 'err'); return; }
-        const bid = await db.get('bids', id);
-        if (!bid) { toast('Budet hittas inte', 'err'); return; }
-        bid.rounds.push({ by:'buyer', amount, at: Date.now() });
-        await db.put('bids', bid);
-        await notify(bid.haulerId, { type:'counter', bookingId: b.id, message: `Uppdragsgivaren skickade motbud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation}.` });
-        toast(`Motbud skickat: ${fmtMoney(grossFromHauler(amount))} till dig, åkeriet ser ${fmtMoney(amount)}`);
+        if (!typed || typed <= 0) { toast('Ange ett giltigt motbud', 'err'); return; }
+        const { data: co, error: coErr } = await sb.rpc('counter_offer', { p_bid_id: id, p_gross: typed });
+        if (coErr) throw coErr;
+        await notify(co?.hauler_id, { type:'counter', bookingId: b.id, bidId: id, message: `Uppdragsgivaren skickade motbud på ${b.fromLocation} → ${b.toLocation}.` });
+        toast(`Motbud skickat: ${fmtMoney(Number(co?.gross) || typed)}`);
         navigate('/booking/' + b.id);
       } catch (err) {
         console.error('Motbud-fel:', err);
@@ -6608,10 +6632,9 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
   document.querySelectorAll('button[data-rejectbid]').forEach(btn => {
     btn.onclick = async () => {
       if (!confirm('Avslå budet?')) return;
-      const bid = await db.get('bids', btn.dataset.rejectbid);
-      bid.status = 'rejected';
-      await db.put('bids', bid);
-      await notify(bid.haulerId, { type:'bid_rejected', bookingId: b.id, message: `Ditt bud på ${b.fromLocation} → ${b.toLocation} avslogs.` });
+      const { data: rjHauler, error: rjErr } = await sb.rpc('reject_bid', { p_bid_id: btn.dataset.rejectbid });
+      if (rjErr) { toast('Kunde inte avslå budet: ' + friendlyError(rjErr), 'err'); return; }
+      await notify(rjHauler, { type:'bid_rejected', bookingId: b.id, bidId: btn.dataset.rejectbid, message: `Ditt bud på ${b.fromLocation} → ${b.toLocation} avslogs.` });
       toast('Bud avslaget');
       navigate('/booking/' + b.id);
     };

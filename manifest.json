@@ -2,7 +2,7 @@
   "id": "/?source=pwa",
   "name": "hittalast.se",
   "short_name": "hittalast",
-  "description": "Hitta last förmedlar transporter som speditör enligt NSAB 2015. Gratis för åkerier, 8 % serviceavgift på varje körning.",
+  "description": "Hitta last förmedlar transporter som speditör enligt NSAB 2015. Gratis för åkerier, Hitta last fakturerar transportköparen.",
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
