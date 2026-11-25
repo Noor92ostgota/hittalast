@@ -1203,28 +1203,6 @@ async function haulerComplianceBanner(u) {
     ? `För att kunna lägga bud och ta uppdrag behöver du <a href="#/dokument"><b>ladda upp ${missing.join(' och ')}</b></a>. Hitta last kontrollerar och godkänner, normalt inom en arbetsdag.`
     : `Dina dokument är uppladdade. Hitta last kontrollerar trafiktillstånd och F-skatt, normalt inom en arbetsdag. Tills dess kan du se körningar men inte lägga bud. <a href="#/dokument">Mina dokument</a>`}${!u.orgNr ? ' <b>Fyll även i organisationsnummer under Mitt konto.</b>' : ''}</div>`;
 }
-// Åkeriets egen sida för dokumenten
-route(/^\/dokument$/, async (_m, u) => {
-  if (!u || u.role !== 'akare') return navigate('/');
-  const c = await loadCompliance(u.id);
-  const docRow = (field, label, help, status, until, docPath, uploadedAt) => `
-    <div class="card">
-      <h3 style="margin-top:0">${label} ${complianceBadge(status, until)}</h3>
-      <p class="muted" style="font-size:13px">${help}</p>
-      <div class="muted" style="font-size:13px;margin-bottom:8px">${docPath ? `📎 Dokument uppladdat ${fmtDate(uploadedAt)} <button type="button" class="secondary" data-viewdoc="${esc(docPath)}" style="padding:4px 8px;margin-left:6px">Visa</button>` : 'Inget dokument uppladdat ännu.'}</div>
-      <div class="field"><label>${docPath ? 'Ladda upp ett nytt' : 'Ladda upp'} (PDF, JPG eller PNG, max 10 MB)</label><input type="file" data-updoc="${field}" accept="application/pdf,image/*"></div>
-    </div>`;
-  mount(`
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-      <a href="#/" class="btn secondary">← Tillbaka</a>
-      <h2 style="margin:0">🛂 Mina dokument</h2>
-    </div>
-    <div class="banner info">Hitta last är speditör och ansvarar för att alla åkerier har giltigt yrkestrafiktillstånd och F-skatt (beställaransvar). Ladda upp dina dokument här, så kontrollerar vi dem och godkänner ditt åkeri. Därefter kan du lägga bud och ta uppdrag.${!u.orgNr ? ' Fyll även i organisationsnummer under Mitt konto.' : ''}</div>
-    ${docRow('permit', 'Yrkestrafiktillstånd', 'Tillståndsbeviset från Transportstyrelsen (eller gemenskapstillståndet). Vi kontrollerar också mot Transportstyrelsens register.', c?.permitStatus || 'pending', c?.permitValidUntil, c?.permitDocPath, c?.permitDocUploadedAt)}
-    ${docRow('fskatt', 'F-skattsedel', 'Registerutdrag eller beslut från Skatteverket som visar att företaget är godkänt för F-skatt.', c?.fskattStatus || 'pending', c?.fskattValidUntil, c?.fskattDocPath, c?.fskattDocUploadedAt)}
-  `);
-  bindComplianceDocs(u.id);
-});
 // Uppladdning till privat bucket (egen mapp per åkeri) och registrering via RPC. Används på /dokument.
 function bindComplianceDocs(uid) {
   document.querySelectorAll('input[data-updoc]').forEach(inp => {
@@ -1498,6 +1476,29 @@ async function hydrateProofImages(root = document) {
 // --------- Router (hash-baserad) ---------
 const routes = [];
 function route(pattern, handler) { routes.push({ pattern, handler }); }
+
+// Åkeriets egen sida för dokumenten
+route(/^\/dokument$/, async (_m, u) => {
+  if (!u || u.role !== 'akare') return navigate('/');
+  const c = await loadCompliance(u.id);
+  const docRow = (field, label, help, status, until, docPath, uploadedAt) => `
+    <div class="card">
+      <h3 style="margin-top:0">${label} ${complianceBadge(status, until)}</h3>
+      <p class="muted" style="font-size:13px">${help}</p>
+      <div class="muted" style="font-size:13px;margin-bottom:8px">${docPath ? `📎 Dokument uppladdat ${fmtDate(uploadedAt)} <button type="button" class="secondary" data-viewdoc="${esc(docPath)}" style="padding:4px 8px;margin-left:6px">Visa</button>` : 'Inget dokument uppladdat ännu.'}</div>
+      <div class="field"><label>${docPath ? 'Ladda upp ett nytt' : 'Ladda upp'} (PDF, JPG eller PNG, max 10 MB)</label><input type="file" data-updoc="${field}" accept="application/pdf,image/*"></div>
+    </div>`;
+  mount(`
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <a href="#/" class="btn secondary">← Tillbaka</a>
+      <h2 style="margin:0">🛂 Mina dokument</h2>
+    </div>
+    <div class="banner info">Hitta last är speditör och ansvarar för att alla åkerier har giltigt yrkestrafiktillstånd och F-skatt (beställaransvar). Ladda upp dina dokument här, så kontrollerar vi dem och godkänner ditt åkeri. Därefter kan du lägga bud och ta uppdrag.${!u.orgNr ? ' Fyll även i organisationsnummer under Mitt konto.' : ''}</div>
+    ${docRow('permit', 'Yrkestrafiktillstånd', 'Tillståndsbeviset från Transportstyrelsen (eller gemenskapstillståndet). Vi kontrollerar också mot Transportstyrelsens register.', c?.permitStatus || 'pending', c?.permitValidUntil, c?.permitDocPath, c?.permitDocUploadedAt)}
+    ${docRow('fskatt', 'F-skattsedel', 'Registerutdrag eller beslut från Skatteverket som visar att företaget är godkänt för F-skatt.', c?.fskattStatus || 'pending', c?.fskattValidUntil, c?.fskattDocPath, c?.fskattDocUploadedAt)}
+  `);
+  bindComplianceDocs(u.id);
+});
 
 function navigate(path) {
   if (location.hash.slice(1) === path) render();
