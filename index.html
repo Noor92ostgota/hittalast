@@ -2907,8 +2907,8 @@ async function publicDashboard() {
         <div class="landing-features">
           <div class="feature">
             <span class="feature-icon">🚛</span>
-            <h3>Lediga bilar, full kontroll</h3>
-            <p>Publicera lediga fordon med plats, rutt och tider. Få förfrågningar direkt.</p>
+            <h3>Lediga bilar</h3>
+            <p>Åkerier publicerar lediga fordon med plats, rutt och tider. Transportköpare ser bilarna och föreslår last, Hitta last förmedlar kontakten.</p>
           </div>
           <div class="feature">
             <span class="feature-icon">💬</span>
@@ -4571,7 +4571,7 @@ route(/^\/vehicles\/([\w-]+)\/edit$/, async (m, u) => {
   };
 });
 
-// --------- Lediga bilar (åkare/speditörer publicerar tillgängliga fordon) ---------
+// --------- Lediga bilar (åkerier publicerar, även via mejlimport; åkerier och transportköpare ser dem och föreslår last via Hitta last) ---------
 route(/^\/free-vehicles$/, async (_m, u) => {
   if (!u || u.role === 'chauffor') return navigate('/'); // åkerier och transportköpare; åkeriets identitet döljs för transportköpare
   const isBuyerView = u.role === 'speditor';
@@ -4580,7 +4580,7 @@ route(/^\/free-vehicles$/, async (_m, u) => {
   active.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()); // ISO-strängar från databasen
   const users = {};
   const vehiclesById = {};
-  // Ägarnas namn, företag och kontaktuppgifter – den som publicerat en ledig bil vill bli kontaktad
+  // Ägarnas företag: RPC:n ger rader bara till åkare/admin och kontaktuppgifter bara till admin, transportköpare får inget och ser inte vem som äger bilen
   const ownerIds = [...new Set(active.map(fv => fv.haulerId).filter(Boolean))];
   if (ownerIds.length) {
     const { data: owners, error: ownErr } = await sb.rpc('get_free_vehicle_owners', { p_ids: ownerIds });
@@ -4613,11 +4613,11 @@ route(/^\/free-vehicles$/, async (_m, u) => {
     <div class="btn-row">
       ${canAcceptAndPost(u) ? `<a class="btn" href="#/free-vehicles/new">➕ Lägg till ledig bil</a>` : ''}
     </div>
-    <div class="banner info">Lediga bilar som söker last. Har du gods som passar klickar du <b>Föreslå last</b> på bilen: förslaget går till Hitta last som matchar och tar kontakt med båda parter. Inga kontaktuppgifter byts direkt.${isBuyerView ? ' Vilket åkeri som har bilen visas inte, Hitta last är din motpart.' : ''}${importedCount ? ` Bilar märkta 📨 kommer från transportköpares mejl ("öppen för förslag").` : ''}</div>
+    <div class="banner info">Lediga bilar som söker last. Har du gods som passar klickar du <b>Föreslå last</b> på bilen: förslaget går till Hitta last som matchar och tar kontakt med båda parter. Inga kontaktuppgifter byts direkt.${isBuyerView ? ' Vem som har bilen visas inte, Hitta last är din motpart.' : ''}${importedCount ? ` Bilar märkta 📨 kommer från transportköpares mejl ("öppen för förslag").` : ''}</div>
     <div class="card">
       ${active.length === 0 ? `<div class="empty">Inga lediga bilar just nu.</div>`
       : `<table class="compact">
-          <thead><tr><th>Rutt</th><th>Fordon</th><th>Egenskaper</th><th>Tillgänglig</th><th>Åkare</th><th>Kommentar</th><th></th></tr></thead>
+          <thead><tr><th>Rutt</th><th>Fordon</th><th>Egenskaper</th><th>Tillgänglig</th><th>Publicerad av</th><th>Kommentar</th><th></th></tr></thead>
           <tbody>
           ${active.map(fv => {
             const owner = users[fv.haulerId];
@@ -4643,7 +4643,7 @@ route(/^\/free-vehicles$/, async (_m, u) => {
               <td>${fv.importSourceId
                 ? (u.role === 'admin'
                     ? `<span class="badge" style="background:#fed7aa;color:#9a3412;font-weight:600">📨 ${esc(senderNames[fv.senderInvitationId] || 'via mejl')}</span>`
-                    : `<span class="badge" style="background:#fed7aa;color:#9a3412;font-weight:600">📨 Mejlförfrågan</span><br><span class="muted" style="font-size:11px">kontakt via hittalast</span>`)
+                    : `<span class="badge" style="background:#fed7aa;color:#9a3412;font-weight:600">📨 Mejlförfrågan</span><br><span class="muted" style="font-size:11px">kontakt via Hitta last</span>`)
                 : (u.role === 'admin'
                     ? `${owner ? esc(owner.company || owner.name) : '—'}<br><span class="muted" style="font-size:11px">${owner ? esc(owner.phone || owner.email || '') : ''}</span>`
                     : `${isMine ? 'Min bil' : (owner && !isBuyerView ? esc(owner.company || owner.name) : 'Åkeri')}<br><span class="muted" style="font-size:11px">kontakt via Hitta last</span>`)}</td>
@@ -4656,7 +4656,7 @@ route(/^\/free-vehicles$/, async (_m, u) => {
             <tr class="propose-row" id="propose-${fv.id}" style="display:none"><td colspan="7">
               <div class="card" style="margin:6px 0;background:var(--bg)">
                 <b>Föreslå last till ${esc(fv.currentLocation || '')} → ${fv.anywhere ? 'vart som helst' : esc(fv.destination || '')}</b>
-                <div class="muted" style="font-size:12px;margin:4px 0 8px">Välj en av dina öppna körningar eller beskriv lasten. Hitta last får förslaget och tar kontakt med dig och åkeriet. Inga priser eller kontaktuppgifter här.</div>
+                <div class="muted" style="font-size:12px;margin:4px 0 8px">Välj en av dina öppna körningar eller beskriv lasten. Hitta last får förslaget och tar kontakt med dig och den som har bilen. Inga priser eller kontaktuppgifter här.</div>
                 <div class="row">
                   <div class="field"><label>Min körning</label><select data-propose-booking="${fv.id}"><option value="">— Ingen, jag beskriver lasten —</option>${myOpen.map(b => `<option value="${b.id}">${esc(b.fromLocation)} → ${esc(b.toLocation)}${b.loadDate ? ' · ' + esc(b.loadDate) : ''}</option>`).join('')}</select></div>
                   <div class="field"><label>Beskrivning</label><input data-propose-text="${fv.id}" placeholder="t.ex. 12 pall Linköping till Göteborg, lastas torsdag"></div>
@@ -4792,6 +4792,9 @@ function bindFreeVehicleForm(u, fv) {
       createdAt: fv ? fv.createdAt : Date.now(),
       updatedAt: Date.now(),
     };
+    // Kontakt går via Hitta last: kommentaren får inte innehålla telefon, e-post, webbadress eller företagsnamn (databasen tvättar dessutom texten)
+    const det = detectContact(data.comment);
+    if (det.hits.length) { toast(`Kommentaren får inte innehålla ${det.hits.join(', ')}, kontakt går via Hitta last`, 'err'); return; }
     try {
       if (fv) { data.id = fv.id; await db.put('freeVehicles', data); toast('Sparad'); }
       else { await db.add('freeVehicles', data); toast('Publicerad'); }
