@@ -343,6 +343,7 @@ const TABLE_MAP = {
   messages: 'messages',
   notifications: 'notifications',
   freeVehicles: 'free_vehicles',
+  haulerCompliance: 'hauler_compliance',
 };
 // Läsningar: bookings_v döljer buyer_id på öppna förmedlade körningar (mejlimport/speditör) för alla
 // utom uppdragsgivaren och admin. Skrivningar går mot tabellen som vanligt.
@@ -1168,6 +1169,76 @@ async function migrateLegacyRoles() {
 const STATUS_LABEL = { open: 'Öppen', accepted: 'Accepterad', completed: 'Utförd', cancelled: 'Avbruten' };
 // Part som raderat sitt konto: körningen finns kvar med bara företagsuppgifter (bookings.party_snapshots)
 const BROKER_LABEL = 'Förmedlad via Hitta last';
+
+// --------- Beställaransvar: kontroll av trafiktillstånd och F-skatt ---------
+// Myndigheternas e-tjänster svarar per mejl, så kontrollen görs av Hitta last och godkänns i adminvyn.
+// Databasen stoppar bud och accept tills båda är godkända (hauler_is_approved).
+const CHECK_LINKS = {
+  permit: 'https://tillstkoll.transportstyrelsen.se/Trafiktillstand/',
+  fskatt: 'https://www.skatteverket.se/foretag/etjansterochblanketter/allaetjanster.4.76a43be412206334b89800031419.html',
+};
+function complianceItemOk(status, until) { return status === 'approved' && (!until || tsMs(until) > Date.now()); }
+function complianceOk(c) { return !!c && complianceItemOk(c.permitStatus, c.permitValidUntil) && complianceItemOk(c.fskattStatus, c.fskattValidUntil); }
+function complianceBadge(status, until) {
+  if (complianceItemOk(status, until)) return `<span class="badge accepted">Godkänd${until ? ' t.o.m. ' + localIso(until) : ''}</span>`;
+  if (status === 'rejected') return '<span class="badge completed">Underkänd</span>';
+  if (status === 'approved') return '<span class="badge open">Utgången</span>';
+  return '<span class="badge open">Väntar på kontroll</span>';
+}
+async function loadCompliance(uid) {
+  try { return await db.oneByIndex('haulerCompliance', 'profileId', uid); } catch (e) { console.warn('compliance', e); return null; }
+}
+async function haulerComplianceBanner(u) {
+  if (!u || u.role !== 'akare') return '';
+  const c = await loadCompliance(u.id);
+  if (complianceOk(c)) {
+    const until = [c.permitValidUntil, c.fskattValidUntil].filter(Boolean).map(tsMs).sort()[0];
+    return `<div class="muted" style="margin:-6px 0 12px;font-size:13px">✅ Trafiktillstånd och F-skatt kontrollerade av Hitta last${until ? ', giltigt till ' + localIso(new Date(until)) : ''}.</div>`;
+  }
+  if (c && (c.permitStatus === 'rejected' || c.fskattStatus === 'rejected')) {
+    return `<div class="banner err">❌ Kontrollen av ${c.permitStatus === 'rejected' ? 'trafiktillstånd' : 'F-skatt'} gick inte igenom. Du kan inte lägga bud eller ta uppdrag. Kontakta ${HITTA_LAST.email} om uppgifterna är fel.</div>`;
+  }
+  return `<div class="banner warn">🛂 Vi kontrollerar ditt trafiktillstånd hos Transportstyrelsen och din F-skatt hos Skatteverket. Det tar normalt en arbetsdag. Tills dess kan du se körningar men inte lägga bud eller ta uppdrag.${!u.orgNr ? ' <b>Fyll i organisationsnummer under Mitt konto så vi kan göra kontrollen.</b>' : ''}</div>`;
+}
+function complianceAdminBlock(target, c) {
+  const row = (field, label, status, checkedAt, until) => `
+    <tr>
+      <td><b>${label}</b><div class="muted" style="font-size:12px"><a href="${CHECK_LINKS[field]}" target="_blank" rel="noopener">Öppna myndighetens e-tjänst ↗</a></div></td>
+      <td>${complianceBadge(status, until)}${checkedAt ? `<div class="muted" style="font-size:11px">kontrollerad ${fmtDate(checkedAt)}</div>` : ''}</td>
+      <td class="nowrap">
+        <button type="button" class="ok" data-comp="${field}" data-status="approved">✓ Godkänn</button>
+        <button type="button" class="danger" data-comp="${field}" data-status="rejected">✕ Underkänn</button>
+        <button type="button" class="secondary" data-comp="${field}" data-status="pending">↺ Ny kontroll</button>
+      </td>
+    </tr>`;
+  return `<div class="card" style="margin-top:14px">
+    <h3>🛂 Beställaransvar: trafiktillstånd och F-skatt</h3>
+    <div class="muted" style="font-size:13px;margin-bottom:10px">Org.nr <b>${esc(target.orgNr || 'saknas')}</b>. Slå upp org.nr i e-tjänsterna (svaret kommer per mejl), godkänn här och anteckna datum för svaret. Åkeriet kan lägga bud först när båda är godkända. Giltigheten löper ut automatiskt och då aviseras du igen.</div>
+    <table class="compact">
+      <thead><tr><th>Kontroll</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        ${row('permit', 'Yrkestrafiktillstånd (Transportstyrelsen)', c?.permitStatus || 'pending', c?.permitCheckedAt, c?.permitValidUntil)}
+        ${row('fskatt', 'F-skatt (Skatteverket)', c?.fskattStatus || 'pending', c?.fskattCheckedAt, c?.fskattValidUntil)}
+      </tbody>
+    </table>
+    <div class="row" style="margin-top:10px">
+      <div class="field"><label>Giltighet (månader) vid godkännande</label><input type="number" id="compMonths" min="1" max="24" step="1" value="6"></div>
+      <div class="field"><label>Anteckning (t.ex. datum för myndighetens svar)</label><input id="compNote" value="${esc(c?.note || '')}" placeholder="Transportstyrelsen svar 2026-11-26, Skatteverket 2026-11-26"></div>
+    </div>
+  </div>`;
+}
+function bindComplianceAdmin(target) {
+  document.querySelectorAll('button[data-comp]').forEach(btn => {
+    btn.onclick = () => withLock(btn, '⏳', async () => {
+      const note = (document.getElementById('compNote')?.value || '').trim() || null;
+      const months = Number(document.getElementById('compMonths')?.value) || 6;
+      const { error } = await sb.rpc('set_hauler_compliance', { p_profile: target.id, p_field: btn.dataset.comp, p_status: btn.dataset.status, p_months: months, p_note: note });
+      if (error) { toast('Kunde inte spara: ' + friendlyError(error), 'err'); return; }
+      toast('Kontrollen sparad');
+      render();
+    });
+  });
+}
 // Namn som chatten maskerar/stoppar före accept. Dolda parter och platshållare räknas inte som namn.
 function partyNames(...parties) {
   return parties.flatMap(p => (p && !p.hidden) ? [p.name, p.company] : [])
@@ -1317,6 +1388,7 @@ function friendlyError(e) {
   if (/weak and easy to guess|pwned|leaked|compromised/i.test(m)) return 'Lösenordet finns med i kända läckor. Välj ett annat.';
   if (/Password should be at least/i.test(m)) return 'Lösenordet är för kort.';
   if (/rate limit|only request this after|too many requests/i.test(m)) return 'För många försök på kort tid. Vänta en stund och försök igen.';
+  if (/inte godkänt/i.test(m)) return m.replace(/^.*?(Ditt åkeri|Åkeriet)/, '$1');
   return m || 'Något gick fel';
 }
 
@@ -2908,9 +2980,11 @@ async function unifiedDashboard(u) {
 
   // Bygg avsändar-map för admin (visas i Tillgängliga körningar-sektionen)
   const senderMap = await buildSenderMap(u, [...available, ...myActive, ...accAcceptedActive]);
+  const complianceBanner = await haulerComplianceBanner(u);
 
   mount(`
     <h2>Hej ${esc(u.name)}!</h2>
+    ${complianceBanner}
     <div class="btn-row">
       ${canAcceptAndPost(u) ? `<a class="btn" href="#/new">➕ Skapa ny körning</a>` : ''}
       ${allMine.some(b => b.sourceRef) ? `<button class="btn danger" id="clearImportedBtn" style="margin:0">🗑 Rensa importerade (${allMine.filter(b => b.sourceRef).length})</button>` : ''}
@@ -5316,6 +5390,7 @@ async function adminDashboard(u) {
 
   // Bygg avsändar-map för importerade körningar
   const senderMap = await buildSenderMap(u, bookings);
+  const pendingChecks = (await db.all('haulerCompliance')).filter(c => !complianceOk(c) && byId[c.profileId]);
 
   mount(`
     <h2>Admin — översikt</h2>
@@ -5327,6 +5402,20 @@ async function adminDashboard(u) {
       <div class="stat"><div class="val">${completedCount}</div><div class="lbl">Utförda</div></div>
     </div>
     ${(waitlistCount || 0) > 0 ? `<div class="btn-row" style="margin-bottom:12px"><a class="btn secondary" href="#/waitlist">📋 Visa väntelista</a></div>` : ''}
+    ${pendingChecks.length ? `<div class="card" style="border-left:4px solid #f97316">
+      <h3>🛂 Kontroller att göra (${pendingChecks.length})</h3>
+      <div class="muted" style="font-size:13px;margin-bottom:8px">Åkerier som väntar på kontroll av trafiktillstånd eller F-skatt. De kan inte lägga bud förrän du godkänt båda.</div>
+      <table class="compact">
+        <thead><tr><th>Åkeri</th><th>Org.nr</th><th>Trafiktillstånd</th><th>F-skatt</th><th></th></tr></thead>
+        <tbody>${pendingChecks.map(c => `<tr>
+          <td><b>${esc(byId[c.profileId]?.company || byId[c.profileId]?.name || '?')}</b><div class="muted" style="font-size:11px">${esc(byId[c.profileId]?.email || '')}</div></td>
+          <td>${esc(c.orgNr || byId[c.profileId]?.orgNr || 'saknas')}</td>
+          <td>${complianceBadge(c.permitStatus, c.permitValidUntil)}</td>
+          <td>${complianceBadge(c.fskattStatus, c.fskattValidUntil)}</td>
+          <td class="nowrap"><a class="btn secondary" href="#/users/${c.profileId}/edit" style="padding:4px 8px">Kontrollera</a></td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>` : ''}
     <div class="card">
       <h3>Alla körningar</h3>
       ${bookings.length === 0 ? `<div class="empty">Inga körningar</div>` : renderBookingTable(bookings, 'admin', senderMap)}
@@ -5417,6 +5506,14 @@ route(/^\/users$/, async (_m, u) => {
   const publishedByUser = (uid) => allBookings.filter(b => b.buyerId === uid).length;
   const acceptedByUser  = (uid) => allBookings.filter(b => b.haulerId === uid).length;
   const vehicleCountFor = (uid) => allVehicles.filter(v => v.haulerId === uid).length;
+  const compById = Object.fromEntries((await db.all('haulerCompliance')).map(c => [c.profileId, c]));
+  const compCell = (x) => {
+    if (x.role !== 'akare') return '<span class="muted">—</span>';
+    const c = compById[x.id];
+    return complianceOk(c) ? '<span class="badge accepted">Godkänd</span>'
+      : (c && (c.permitStatus === 'rejected' || c.fskattStatus === 'rejected')) ? '<span class="badge completed">Underkänd</span>'
+      : '<span class="badge open">Kontroll</span>';
+  };
 
 
   mount(`
@@ -5433,6 +5530,7 @@ route(/^\/users$/, async (_m, u) => {
           <th>E-post</th>
           <th>Telefon</th>
           <th>Bilar</th>
+          <th>🛂</th>
           <th>Publ.</th>
           <th>Acc.</th>
           <th>Utf.</th>
@@ -5447,6 +5545,7 @@ route(/^\/users$/, async (_m, u) => {
             <td>${esc(x.email)}</td>
             <td>${esc(x.phone || '—')}</td>
             <td style="text-align:center">${vehicleCountFor(x.id)}</td>
+            <td>${compCell(x)}</td>
             <td style="text-align:center">${publishedByUser(x.id)}</td>
             <td style="text-align:center">${acceptedByUser(x.id)}</td>
             <td style="text-align:center"><b>${completedByUser(x.id)}</b></td>
@@ -5503,11 +5602,14 @@ route(/^\/users\/([\w-]+)\/edit$/, async (m, u) => {
   if (u.role !== 'admin') return navigate('/');
   const target = await db.get('users', m[1]);
   if (!target) { toast('Användaren hittas inte', 'err'); return navigate('/users'); }
+  const compliance = target.role === 'akare' ? await loadCompliance(target.id) : null;
   mount(`
     <h2>Redigera ${esc(target.name)}</h2>
     ${userForm(target)}
+    ${target.role === 'akare' ? complianceAdminBlock(target, compliance) : ''}
   `);
   bindUserForm(target);
+  if (target.role === 'akare') bindComplianceAdmin(target);
 });
 
 function userForm(target) {
@@ -5943,7 +6045,12 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
   const proofImgUrl = blobToUrl(b.proofImageUrl || b.proofImage);
 
   let actions = '';
-  if (isOtherHauler && b.status === 'open') {
+  // Åkeri som inte är godkänt (trafiktillstånd/F-skatt) får varken lägga bud eller acceptera; databasen stoppar det också
+  const myCompliance = (isOtherHauler && b.status === 'open' && me && me.role === 'akare') ? await loadCompliance(me.id) : null;
+  const haulerBlocked = isOtherHauler && b.status === 'open' && me && me.role === 'akare' && !complianceOk(myCompliance);
+  if (haulerBlocked) {
+    actions = `<div class="banner warn">🛂 Du kan lägga bud och ta uppdrag när Hitta last har kontrollerat ditt trafiktillstånd och din F-skatt. Det tar normalt en arbetsdag.${!me.orgNr ? ' Fyll i organisationsnummer under Mitt konto.' : ''}</div>`;
+  } else if (isOtherHauler && b.status === 'open') {
     if (myBid) {
       const last = latestBidAmount(myBid);
       const lastBy = latestBidBy(myBid);
