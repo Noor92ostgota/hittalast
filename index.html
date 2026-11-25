@@ -1816,7 +1816,7 @@ function roleNav(u) {
   // Speditörer följer sina importerade körningar och svarar på bud – inga länkar som vakterna ändå stoppar
   let nav = base;
   if (canAcceptAndPost(u)) nav += `<a href="#/available"><span class="label">Tillgängliga körningar</span> 📋</a>` + `<a href="#/new"><span class="label">Ny körning</span> ➕</a>`;
-  if (u.role === 'akare' || u.role === 'admin') nav += `<a href="#/free-vehicles"><span class="label">Lediga bilar</span> 🚚</a>`;
+  if (u.role !== 'chauffor') nav += `<a href="#/free-vehicles"><span class="label">Lediga bilar</span> 🚚</a>`;
   if (isHauler(u)) nav += `<a href="#/vehicles"><span class="label">Mina bilar</span> 🚛</a>` + `<a href="#/drivers"><span class="label">Chaufförer</span> 👷</a>`;
   if (canAcceptAndPost(u)) nav += `<a href="#/planera"><span class="label">Planera rutt</span> 🧭</a>`;
   nav += `<a href="#/invoices"><span class="label">Fakturaunderlag</span> 📄</a>`;
@@ -4573,7 +4573,8 @@ route(/^\/vehicles\/([\w-]+)\/edit$/, async (m, u) => {
 
 // --------- Lediga bilar (åkare/speditörer publicerar tillgängliga fordon) ---------
 route(/^\/free-vehicles$/, async (_m, u) => {
-  if (!u || (u.role !== 'akare' && u.role !== 'admin')) return navigate('/'); // åkeri till åkeri, inte för transportköpare
+  if (!u || u.role === 'chauffor') return navigate('/'); // åkerier och transportköpare; åkeriets identitet döljs för transportköpare
+  const isBuyerView = u.role === 'speditor';
   const all = await db.all('freeVehicles');
   const active = all.filter(x => x.status !== 'archived');
   active.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()); // ISO-strängar från databasen
@@ -4612,7 +4613,7 @@ route(/^\/free-vehicles$/, async (_m, u) => {
     <div class="btn-row">
       ${canAcceptAndPost(u) ? `<a class="btn" href="#/free-vehicles/new">➕ Lägg till ledig bil</a>` : ''}
     </div>
-    <div class="banner info">Lediga bilar som söker last. Har du gods som passar klickar du <b>Föreslå last</b> på bilen: förslaget går till Hitta last som matchar och tar kontakt med båda parter. Inga kontaktuppgifter byts direkt.${importedCount ? ` Bilar märkta 📨 kommer från transportköpares mejl ("öppen för förslag").` : ''}</div>
+    <div class="banner info">Lediga bilar som söker last. Har du gods som passar klickar du <b>Föreslå last</b> på bilen: förslaget går till Hitta last som matchar och tar kontakt med båda parter. Inga kontaktuppgifter byts direkt.${isBuyerView ? ' Vilket åkeri som har bilen visas inte, Hitta last är din motpart.' : ''}${importedCount ? ` Bilar märkta 📨 kommer från transportköpares mejl ("öppen för förslag").` : ''}</div>
     <div class="card">
       ${active.length === 0 ? `<div class="empty">Inga lediga bilar just nu.</div>`
       : `<table class="compact">
@@ -4624,7 +4625,8 @@ route(/^\/free-vehicles$/, async (_m, u) => {
             const dest = fv.anywhere ? '<span class="badge feature">Vart som helst</span>' : `<b>${esc(fv.destination || '—')}</b>`;
             const linkedVeh = fv.vehicleId ? vehiclesById[fv.vehicleId] : null;
             const flm = (fv.freeFlm != null && fv.freeFlm !== '') ? `${esc(fv.freeFlm)} FLM` : '';
-            const vehTop = linkedVeh ? `<b>${esc(linkedVeh.regNr || '')}</b>` : '<span class="muted">—</span>';
+            const vehTop = linkedVeh ? `<b>${esc(linkedVeh.regNr || linkedVeh.type || 'Bil')}</b>` : '<span class="muted">—</span>'; // reg.nr visas inte för transportköpare (RPC ger null)
+            const comment = (u.role === 'admin' || isMine) ? (fv.comment || '') : detectContact(fv.comment || '').masked; // åkarens egna kontaktuppgifter i kommentaren går via Hitta last
             const vehSub = [linkedVeh?.model, flm].filter(Boolean).map(esc).join(' · ');
             const features = [
               fv.adr ? '<span class="badge feature">ADR</span>' : '',
@@ -4644,8 +4646,8 @@ route(/^\/free-vehicles$/, async (_m, u) => {
                     : `<span class="badge" style="background:#fed7aa;color:#9a3412;font-weight:600">📨 Mejlförfrågan</span><br><span class="muted" style="font-size:11px">kontakt via hittalast</span>`)
                 : (u.role === 'admin'
                     ? `${owner ? esc(owner.company || owner.name) : '—'}<br><span class="muted" style="font-size:11px">${owner ? esc(owner.phone || owner.email || '') : ''}</span>`
-                    : `${isMine ? 'Min bil' : (owner ? esc(owner.company || owner.name) : 'Åkeri')}<br><span class="muted" style="font-size:11px">kontakt via Hitta last</span>`)}</td>
-              <td style="font-size:12px">${esc(fv.comment || '')}</td>
+                    : `${isMine ? 'Min bil' : (owner && !isBuyerView ? esc(owner.company || owner.name) : 'Åkeri')}<br><span class="muted" style="font-size:11px">kontakt via Hitta last</span>`)}</td>
+              <td style="font-size:12px">${esc(comment)}</td>
               <td class="nowrap">${isMine || u.role === 'admin'
                 ? `<a class="btn secondary icon-btn" href="#/free-vehicles/${fv.id}/edit" title="Ändra">✏️</a>
                    <button class="danger icon-btn" data-delfv="${fv.id}" title="Ta bort">🗑</button>`
