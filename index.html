@@ -391,7 +391,10 @@ const db = {
       const { data: pub, error: pubErr } = await sb.rpc('get_public_profiles', { p_ids: [id] });
       if (pubErr) console.error('db.get public profile', id, pubErr);
       const row = Array.isArray(pub) ? pub[0] : pub;
-      return row ? objToCamel(row) : null;
+      if (!row) return null;
+      const prof = objToCamel(row);
+      if (prof.name === MASKED_NAME) prof.hidden = true; // motpart: namnet får inte användas som "känt namn" i chattvakten
+      return prof;
     }
     return null;
   },
@@ -679,7 +682,7 @@ async function generateInvoicePDF(b, buyer, hauler, kind = 'hauler') {
     y += 5;
     doc.setFontSize(10);
     doc.setTextColor(0);
-    const lines = doc.splitTextToSize(b.description, W - M * 2);
+    const lines = doc.splitTextToSize(toCustomer ? b.description : redactDescription(b.description), W - M * 2);
     doc.text(lines, M, y);
     y += lines.length * 4.5 + 4;
   }
@@ -1168,7 +1171,7 @@ const BROKER_LABEL = 'Förmedlad via Hitta last';
 // Namn som chatten maskerar/stoppar före accept. Dolda parter och platshållare räknas inte som namn.
 function partyNames(...parties) {
   return parties.flatMap(p => (p && !p.hidden) ? [p.name, p.company] : [])
-    .filter(n => n && n !== BROKER_LABEL && n !== 'Uppdragsgivare');
+    .filter(n => n && n !== BROKER_LABEL && n !== 'Uppdragsgivare' && n !== MASKED_NAME);
 }
 function deletedParty(b, side, fallbackName) {
   const s = (b.partySnapshots || {})[side] || {};
@@ -1239,21 +1242,32 @@ function esc(s) {
 
 // Tar bort telefonnummer och e-post från fri text (används i chatt innan accept)
 // Anti-kringgående: regex för e-post, telefon, företagsformer, websidor
-const COMPANY_RE = /\b(?:[A-ZÅÄÖ][\wÅÄÖåäö&'.\-]{1,}\s+){0,3}(?:AB|Aktiebolag|HB|KB|AS|A\/S|ApS|Oy|Inc|Ltd|GmbH|Åkeri|Transport|Logistik|Speditions?)\b/g;
-const URL_RE = /\b(?:https?:\/\/|www\.)\S+|\b[\w-]+\.(?:se|com|net|org|nu|eu|dk|no|fi)\b/gi;
-const EMAIL_RE = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g;
-const PHONE_RE = /(\+?\d[\d\s\-()]{5,}\d)/g;
-// Priser får inte diskuteras i chatten: de hanteras bara via bud och accept (Hitta last är motpart åt båda håll)
-const PRICE_IN_CHAT_RE = /\d[\d\s]*\s*(?:kr|sek|kronor|:-|€|eur)\b|\b(?:pris|priset|prisförslag|betal\w*|faktur\w*|offert\w*|kostnad\w*|ersättning\w*)\b/i;
+// Inga /g-flaggor på regexar som används med .test(): lastIndex skulle annars göra att vartannat anrop missar.
+// Företagsnamn kräver minst ett ord före formen (bara "Transport" eller "Logistik" är vanliga ord i chatten).
+const COMPANY_RE = /\b(?:[A-ZÅÄÖ][\wÅÄÖåäö&'.\-]{1,}\s+){1,3}(?:AB|Aktiebolag|HB|KB|AS|A\/S|ApS|Oy|Inc|Ltd|GmbH|Åkeri|Transport|Logistik|Speditions?)\b/;
+const URL_RE = /\b(?:https?:\/\/|www\.)\S+|\b[\w-]+\.(?:se|com|net|org|nu|eu|dk|no|fi)\b/i;
+const EMAIL_RE = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/;
+// Svensk telefonform: börjar med 0 eller +, minst 8 siffror (ordernummer utan inledande nolla släpps igenom)
+const PHONE_RE = /(?:\+|\b0)\d[\d\s\-().]{6,}\d|\b46\d{8,9}\b/;
+const phoneDigits = (s) => s.replace(/\D/g, '').length;
+function hasPhone(text) {
+  const re = /(?:\+|\b0)\d[\d\s\-().]{6,}\d|\b46\d{8,9}\b/g;
+  let m; while ((m = re.exec(text)) !== null) { if (phoneDigits(m[0]) >= 8) return true; }
+  return false;
+}
+// Priser får inte diskuteras i chatten: de hanteras bara via bud och accept (Hitta last är motpart åt båda håll).
+// "EUR-pall" är inte ett pris, därför bara euro/€ och inte "eur".
+const PRICE_IN_CHAT_RE = /\d[\d\s]*\s*(?:(?:kr|sek|kronor|euro)\b|:-|€)|\b(?:pris|priset|priser|prisförslag|betal(?:a|ar|ade|ning|ningen|t)|faktur(?:a|an|or|era|erar|ering)|offert(?:en|er)?|kostnad(?:en|er)?|kosta(?:r|de)?|ersättning(?:en)?)\b/i;
+const MASKED_NAME = 'Via Hitta last'; // namnet get_public_profiles ger när motpartens profil är dold
 function detectContact(text, knownNames = []) {
   if (!text) return { hits: [], masked: text };
   // Datum och klockslag (2026-11-25, 07:30) är inte telefonnummer
   const keep = [];
-  const protectedText = text.replace(/\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[:.]\d{2}\b/g, m => { keep.push(m); return '\u0001' + (keep.length - 1) + '\u0001'; });
+  const protectedText = text.replace(/\b(?:19|20)\d{2}-\d{2}-\d{2}\b|\b\d{1,2}[:.]\d{2}\b/g, m => { keep.push(m); return '\u0001' + (keep.length - 1) + '\u0001'; });
   let masked = protectedText;
   const hits = [];
   if (EMAIL_RE.test(protectedText))   hits.push('e-post');
-  if (PHONE_RE.test(protectedText))   hits.push('telefon');
+  if (hasPhone(protectedText))        hits.push('telefon');
   if (URL_RE.test(protectedText))     hits.push('webbadress');
   if (COMPANY_RE.test(protectedText)) hits.push('företagsnamn');
   if (PRICE_IN_CHAT_RE.test(protectedText)) hits.push('pris');
@@ -1264,7 +1278,7 @@ function detectContact(text, knownNames = []) {
   }
   // återanvänd regexarna för maskning (måste skapa nya pga global state)
   masked = masked.replace(/\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g, '[***]');
-  masked = masked.replace(/(\+?\d[\d\s\-()]{5,}\d)/g, m => m.replace(/\D/g, '').length >= 6 ? '[***]' : m);
+  masked = masked.replace(/(?:\+|\b0)\d[\d\s\-().]{6,}\d|\b46\d{8,9}\b/g, m => phoneDigits(m) >= 8 ? '[***]' : m);
   masked = masked.replace(/\b(?:https?:\/\/|www\.)\S+|\b[\w-]+\.(?:se|com|net|org|nu|eu|dk|no|fi)\b/gi, '[***]');
   masked = masked.replace(/\b(?:[A-ZÅÄÖ][\wÅÄÖåäö&'.\-]{1,}\s+){0,3}(?:AB|Aktiebolag|HB|KB|AS|A\/S|ApS|Oy|Inc|Ltd|GmbH|Åkeri|Transport|Logistik|Speditions?)\b/g, '[***]');
   for (const n of knownNames) {
@@ -1668,7 +1682,7 @@ function roleNav(u) {
   // Speditörer följer sina importerade körningar och svarar på bud – inga länkar som vakterna ändå stoppar
   let nav = base;
   if (canAcceptAndPost(u)) nav += `<a href="#/available"><span class="label">Tillgängliga körningar</span> 📋</a>` + `<a href="#/new"><span class="label">Ny körning</span> ➕</a>`;
-  nav += `<a href="#/free-vehicles"><span class="label">Lediga bilar</span> 🚚</a>`;
+  if (u.role === 'akare' || u.role === 'admin') nav += `<a href="#/free-vehicles"><span class="label">Lediga bilar</span> 🚚</a>`;
   if (isHauler(u)) nav += `<a href="#/vehicles"><span class="label">Mina bilar</span> 🚛</a>` + `<a href="#/drivers"><span class="label">Chaufförer</span> 👷</a>`;
   if (canAcceptAndPost(u)) nav += `<a href="#/planera"><span class="label">Planera rutt</span> 🧭</a>`;
   nav += `<a href="#/invoices"><span class="label">Fakturaunderlag</span> 📄</a>`;
@@ -4422,7 +4436,7 @@ route(/^\/vehicles\/([\w-]+)\/edit$/, async (m, u) => {
 
 // --------- Lediga bilar (åkare/speditörer publicerar tillgängliga fordon) ---------
 route(/^\/free-vehicles$/, async (_m, u) => {
-  if (!u || u.role === 'chauffor') return navigate('/');
+  if (!u || (u.role !== 'akare' && u.role !== 'admin')) return navigate('/'); // åkeri till åkeri, inte för transportköpare
   const all = await db.all('freeVehicles');
   const active = all.filter(x => x.status !== 'archived');
   active.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()); // ISO-strängar från databasen
@@ -5924,7 +5938,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
     ? `<dt>E-post</dt><dd>${esc(hauler.email)}</dd><dt>Telefon</dt><dd>${esc(hauler.phone)}</dd>`
     : `<dt>Kontakt</dt><dd class="muted">Via Hitta last (chatten nedan eller ${HITTA_LAST.email})</dd>`);
   // Budgivare visas anonymt för uppdragsgivaren (Åkeri A, B, C); admin ser namnen
-  const bidHaulerIds = [...new Set(bids.map(x => x.haulerId))];
+  const bidHaulerIds = [...new Set(bids.map(x => x.haulerId))].sort();
   const haulerAlias = (id) => 'Åkeri ' + String.fromCharCode(65 + Math.max(0, bidHaulerIds.indexOf(id)));
 
   const bookingImgUrl = blobToUrl(b.bookingImageUrl || b.bookingImage);
@@ -6559,8 +6573,8 @@ async function renderChat(b, buyer, hauler, me, ctx) {
   const area = document.getElementById('chat-area');
   const { isBuyer, isAssignedHauler, isOtherHauler, isAdmin } = ctx;
 
-  if (b.status === 'open' && isBuyer) {
-    // Köparen: visa trådlista (en per åkare som skrivit)
+  if (b.status === 'open' && (isBuyer || isAdmin)) {
+    // Köparen (och Hitta last): visa trådlista (en per åkare som skrivit)
     const all = await db.byIndex('messages', 'bookingId', b.id);
     const byHauler = {};
     all.forEach(m => {
@@ -6568,9 +6582,9 @@ async function renderChat(b, buyer, hauler, me, ctx) {
       (byHauler[hid] = byHauler[hid] || []).push(m);
     });
     // id:n är UUID-strängar (förut .map(Number), som gav NaN och kraschade bokningssidan)
-    const haulerIds = Object.keys(byHauler);
+    const haulerIds = Object.keys(byHauler).sort(); // samma ordning som i budlistan, så Åkeri A är samma åkeri
     if (haulerIds.length === 0) {
-      area.innerHTML = `<div class="muted">Inga åkare har kontaktat dig om denna körning ännu.</div>`;
+      area.innerHTML = `<div class="muted">Inga åkare har skrivit om denna körning ännu.</div>`;
       return;
     }
     const haulers = (await Promise.all(haulerIds.map(id => db.get('users', id))))
@@ -6595,7 +6609,7 @@ async function renderChat(b, buyer, hauler, me, ctx) {
 
   // Annars: rak tråd
   let threadHauler = hauler;
-  if (isOtherHauler) threadHauler = me; // åkare som skriver om en öppen bokning → deras egen tråd
+  if (isOtherHauler && !isAdmin) threadHauler = me; // åkare som skriver om en öppen bokning → deras egen tråd (admin läser åkeriets tråd)
   if (!threadHauler) {
     area.innerHTML = `<div class="muted">Ingen chatt ännu.</div>`;
     return;
@@ -6612,6 +6626,13 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
   const users = {};
   if (buyer.id) users[buyer.id] = buyer;
   users[threadHauler.id] = threadHauler;
+  // Avsändare som varken är åkeriet eller jag: Hitta last (admin) eller uppdragsgivaren (vars id kan vara dolt)
+  const roles = {};
+  const unknownIds = [...new Set(msgs.map(m => m.senderId).filter(id => id && id !== me.id && id !== threadHauler.id))];
+  if (unknownIds.length) {
+    const { data: rp } = await sb.rpc('get_public_profiles', { p_ids: unknownIds });
+    (rp || []).forEach(p => { roles[p.id] = p.role; });
+  }
 
   // Chatten är alltid anonym och går via Hitta last: åkeriet och uppdragsgivaren ser aldrig varandras namn
   // eller kontaktuppgifter. Hitta last (admin) läser allt, kan skriva, och motparten får mejl automatiskt.
@@ -6621,10 +6642,10 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
 
   const aliasFor = (uid) => {
     if (uid === me.id) return 'Du';
+    if (roles[uid] === 'admin') return 'Hitta last';
     if (isAdmin) return users[uid]?.name || (uid === threadHauler.id ? 'Åkeriet' : 'Uppdragsgivaren');
     if (uid === threadHauler.id) return 'Åkeriet';
-    if (buyer.id && uid === buyer.id) return 'Uppdragsgivaren (via Hitta last)';
-    return 'Hitta last';
+    return 'Uppdragsgivaren (via Hitta last)';
   };
 
   body.innerHTML = `
