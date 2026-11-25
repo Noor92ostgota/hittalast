@@ -612,11 +612,7 @@ async function generateInvoicePDF(b, buyer, hauler, kind = 'hauler') {
   const yLeft = ptyBlock(toCustomer ? hittaLastParty : haulerParty, M, y);
   const yRight = ptyBlock(toCustomer ? buyerParty : hittaLastParty, M + colW + 8, y);
   y = Math.max(yLeft, yRight) + 4;
-  if (toCustomer && hauler) {
-    doc.setFontSize(9); doc.setTextColor(120);
-    doc.text('Utförande åkeri: ' + (hauler.company || hauler.name || '—'), M, y); y += 5;
-    doc.setFontSize(11); doc.setTextColor(0);
-  }
+
 
   doc.setDrawColor(220);
   doc.line(M, y, W - M, y);
@@ -1247,18 +1243,24 @@ const COMPANY_RE = /\b(?:[A-ZÅÄÖ][\wÅÄÖåäö&'.\-]{1,}\s+){0,3}(?:AB|Akti
 const URL_RE = /\b(?:https?:\/\/|www\.)\S+|\b[\w-]+\.(?:se|com|net|org|nu|eu|dk|no|fi)\b/gi;
 const EMAIL_RE = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g;
 const PHONE_RE = /(\+?\d[\d\s\-()]{5,}\d)/g;
+// Priser får inte diskuteras i chatten: de hanteras bara via bud och accept (Hitta last är motpart åt båda håll)
+const PRICE_IN_CHAT_RE = /\d[\d\s]*\s*(?:kr|sek|kronor|:-|€|eur)\b|\b(?:pris|priset|prisförslag|betal\w*|faktur\w*|offert\w*|kostnad\w*|ersättning\w*)\b/i;
 function detectContact(text, knownNames = []) {
   if (!text) return { hits: [], masked: text };
-  let masked = text;
+  // Datum och klockslag (2026-11-25, 07:30) är inte telefonnummer
+  const keep = [];
+  const protectedText = text.replace(/\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[:.]\d{2}\b/g, m => { keep.push(m); return '\u0001' + (keep.length - 1) + '\u0001'; });
+  let masked = protectedText;
   const hits = [];
-  if (EMAIL_RE.test(text))   hits.push('e-post');
-  if (PHONE_RE.test(text))   hits.push('telefon');
-  if (URL_RE.test(text))     hits.push('webbadress');
-  if (COMPANY_RE.test(text)) hits.push('företagsnamn');
+  if (EMAIL_RE.test(protectedText))   hits.push('e-post');
+  if (PHONE_RE.test(protectedText))   hits.push('telefon');
+  if (URL_RE.test(protectedText))     hits.push('webbadress');
+  if (COMPANY_RE.test(protectedText)) hits.push('företagsnamn');
+  if (PRICE_IN_CHAT_RE.test(protectedText)) hits.push('pris');
   for (const n of knownNames) {
     if (!n) continue;
     const re = new RegExp('\\b' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
-    if (re.test(text)) { hits.push('namn'); break; }
+    if (re.test(protectedText)) { hits.push('namn'); break; }
   }
   // återanvänd regexarna för maskning (måste skapa nya pga global state)
   masked = masked.replace(/\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g, '[***]');
@@ -1270,6 +1272,7 @@ function detectContact(text, knownNames = []) {
     const re = new RegExp('\\b' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
     masked = masked.replace(re, '[***]');
   }
+  masked = masked.replace(/\u0001(\d+)\u0001/g, (_, i) => keep[+i]);
   return { hits: [...new Set(hits)], masked };
 }
 function redactContact(text) { return detectContact(text).masked; }
@@ -1876,7 +1879,7 @@ route(/^\/r\/([a-f0-9]+)$/, async (m) => {
       <button id="ob-optout" style="background:transparent;color:#a0a0a0;border:1px solid rgba(255,255,255,0.15);padding:14px 24px;border-radius:8px;font-size:14px;cursor:pointer">Avregistrera mig</button>
     </div>
     <p style="color:#6b7280;font-size:11px;margin-top:24px;text-align:center">
-      Detta uppdrag plockades upp från ett mejl ni skickat. Hitta last Sverige AB förmedlar det som speditör enligt NSAB 2015 och är er avtalspart. Åkeriets uppgifter visas när ni accepterat ett bud.
+      Detta uppdrag plockades upp från ett mejl ni skickat. Hitta last Sverige AB förmedlar det som speditör enligt NSAB 2015 och är er avtalspart. All kontakt med åkeriet går via Hitta last.
     </p>`;
 
   document.getElementById('ob-register').onclick = async () => {
@@ -2226,7 +2229,7 @@ route(/^\/integritet$/, async () => {
     </ul>
     <h3>Varför</h3>
     <ul>
-      <li>För att tillhandahålla tjänsten: förmedla transporter som speditör mellan transportköpare och åkerier, visa kontaktuppgifter efter accept, skicka aviseringar om bud och uppdrag, samt fakturera och betala ut (fullgörande av avtal).</li>
+      <li>För att tillhandahålla tjänsten: förmedla transporter som speditör mellan transportköpare och åkerier, vidarebefordra meddelanden mellan parterna anonymt (i tjänsten och via e-post), skicka aviseringar om bud och uppdrag, samt fakturera och betala ut (fullgörande av avtal).</li>
       <li>För att kontakta dig om lanseringen när du anmält dig till väntelistan (berättigat intresse – du kan när som helst be oss ta bort dig).</li>
       <li>För säkerhet, felsökning och för att hindra missbruk (berättigat intresse).</li>
       <li>För fakturering, betalning till åkerier och bokföring enligt lag.</li>
@@ -2264,7 +2267,7 @@ route(/^\/villkor$/, async () => {
     <ul>
       <li>Du ansvarar för att uppgifterna på ditt konto är riktiga och för att hålla ditt lösenord hemligt.</li>
       <li>Kontot är avsett för företag i transportbranschen. Åkerier ska ha giltigt yrkestrafiktillstånd, F-skatt och transportöransvarsförsäkring. Chaufförskonton skapas på inbjudan av ett åkeri.</li>
-      <li>Kontaktuppgifter mellan åkeri och uppdragsgivare visas först när en körning accepterats. Det är inte tillåtet att dela kontaktuppgifter i chatten innan dess.</li>
+      <li>Åkeri och uppdragsgivare får inte varandras kontaktuppgifter. All kommunikation om ett uppdrag sker anonymt i tjänstens chatt, som Hitta last förmedlar, eller via Hitta last. Det är inte tillåtet att dela kontaktuppgifter eller diskutera pris i chatten; priser hanteras genom bud och accept.</li>
     </ul>
     <h3>Pris och fakturering</h3>
     <p>Det är gratis för åkerier att registrera sig och använda tjänsten: inget abonnemang, ingen månadsavgift. Det pris åkeriet lämnar eller accepterar (åkarpriset) är det belopp åkeriet fakturerar Hitta last Sverige AB efter utförd transport, med körnings-ID som referens. Uppdragsgivaren betalar åkarpriset plus Hitta lasts serviceavgift på 8 % och faktureras av Hitta last. Alla priser anges exklusive moms. Betalningsvillkor 30 dagar netto om inget annat avtalats. Fakturaunderlag för båda parter finns i tjänsten.</p>
@@ -2760,8 +2763,8 @@ async function publicDashboard() {
           </div>
           <div class="feature">
             <span class="feature-icon">💬</span>
-            <h3>Förhandla via chatt</h3>
-            <p>Anonym chatt och bud-system. Kontaktuppgifter visas först efter accept.</p>
+            <h3>Anonym chatt via Hitta last</h3>
+            <p>Bud-system och chatt där Hitta last förmedlar. Kontaktuppgifter delas aldrig mellan parterna.</p>
           </div>
           <div class="feature">
             <span class="feature-icon">📄</span>
@@ -2913,7 +2916,7 @@ async function unifiedDashboard(u) {
 
     ${canAcceptAndPost(u) ? `<div class="card">
       <h3>📋 Tillgängliga körningar idag (${todayAvail.length})</h3>
-      <div class="muted" style="margin-bottom:8px">Lastas idag. ${available.length - todayAvail.length > 0 ? `Ytterligare ${available.length - todayAvail.length} st lastas andra dagar eller saknar datum – ` : ''}<a href="#/available">se alla och välj dag →</a> Kontaktuppgifter visas efter accept.</div>
+      <div class="muted" style="margin-bottom:8px">Lastas idag. ${available.length - todayAvail.length > 0 ? `Ytterligare ${available.length - todayAvail.length} st lastas andra dagar eller saknar datum – ` : ''}<a href="#/available">se alla och välj dag →</a> All kontakt går via Hitta last.</div>
       ${todayAvail.length === 0 ? `<div class="empty">Inga körningar lastas idag.</div>` : renderBookingTable(todayAvail, 'hauler', senderMap)}
     </div>` : ''}
 
@@ -4109,7 +4112,7 @@ route(/^\/available$/, async (_m, u) => {
       ` : ''}
       ${u.role === 'admin' && allOpen.length > 0 ? `<button class="danger" id="clearAllOpenBtn" style="margin-left:auto">🧹 Rensa alla tillgängliga</button>` : ''}
     </div>
-    <div class="banner info">Alla körningar förmedlas av Hitta last som speditör. Priset du ser är ditt åkarpris exkl. moms, det belopp du fakturerar Hitta last. Kontaktuppgifter för lastning och lossning visas när du accepterat uppdraget.</div>
+    <div class="banner info">Alla körningar förmedlas av Hitta last som speditör. Priset du ser är ditt åkarpris exkl. moms, det belopp du fakturerar Hitta last. Lastnings- och lossningsuppgifter får du via Hitta last i chatten när du accepterat uppdraget.</div>
     <div class="card">
       <h3 style="margin-top:0">📅 ${dayLabel(day)} <span class="muted" style="font-weight:400;font-size:13px">${dayLong}</span></h3>
       ${dated.length === 0
@@ -5883,7 +5886,9 @@ route(/^\/booking\/([\w-]+)$/, async (m, u) => {
 
 async function renderBookingDetail(b, buyer, hauler, me, ctx) {
   const { isBuyer, isAssignedHauler, isOtherHauler, isAdmin, isDriver } = ctx;
-  const canSeeContacts = (b.status !== 'open') && (isBuyer || isAssignedHauler || isAdmin || isDriver);
+  // Kontaktuppgifter mellan åkeri och uppdragsgivare visas aldrig: all kontakt går via Hitta last (chatten). Bara admin ser dem.
+  const canSeeContacts = !!isAdmin;
+  const haulerShown = !!(isAdmin || isAssignedHauler || isDriver);
   const hideMoney = !!isDriver;
   // Bil och chaufför via databasfunktion – uppdragsgivaren får inte läsa åkarens fordon/chaufförer direkt
   let assignedVehicle = null, assignedDriver = null;
@@ -5906,18 +5911,21 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
   // Förmedlad körning (mejlimport eller speditör som uppdragsgivare): åkare ser inte vem som
   // står bakom förrän uppdraget är accepterat, annars ringer de speditören direkt utan Hitta last.
   const brokered = !!(b.senderInvitationId || b.importSourceId || buyer.hidden || buyer.role === 'speditor' || buyer.name === BROKER_LABEL);
-  const hideBuyerIdentity = brokered && b.status === 'open' && !isAdmin && !isBuyer;
+  const hideBuyerIdentity = !isAdmin && !isBuyer;
   const buyerLabel = hideBuyerIdentity
-    ? `<b>${BROKER_LABEL}</b><div class="muted" style="font-size:12px">Hitta last Sverige AB är din avtalspart som speditör. Avsändarens och mottagarens kontaktuppgifter visas när du accepterat uppdraget.</div>`
+    ? `<b>${BROKER_LABEL}</b><div class="muted" style="font-size:12px">Hitta last Sverige AB är din avtalspart som speditör. Frågor om lastning och lossning ställer du i chatten nedan, Hitta last förmedlar till uppdragsgivaren.</div>`
     : `<b>${esc(buyer.name)}</b>${buyer.company ? ' · ' + esc(buyer.company) : ''}${buyer.deleted ? ' <span class="muted">(kontot är raderat)</span>' : ''}`;
-  // kontaktuppgifter — visas bara när accept + toggle på
+  // kontaktuppgifter: bara admin. Parterna når varandra via chatten, som Hitta last förmedlar.
   const buyerContact = canSeeContacts
     ? `<dt>E-post</dt><dd>${esc(buyer.email)}</dd><dt>Telefon</dt><dd>${esc(buyer.phone)}</dd>`
-    : `<dt>Kontakt</dt><dd class="muted">Visas efter accept</dd>`;
+    : `<dt>Kontakt</dt><dd class="muted">Via Hitta last (chatten nedan eller ${HITTA_LAST.email})</dd>`;
 
   const haulerContact = !hauler ? '' : (canSeeContacts
     ? `<dt>E-post</dt><dd>${esc(hauler.email)}</dd><dt>Telefon</dt><dd>${esc(hauler.phone)}</dd>`
-    : `<dt>Kontakt</dt><dd class="muted">Visas efter accept</dd>`);
+    : `<dt>Kontakt</dt><dd class="muted">Via Hitta last (chatten nedan eller ${HITTA_LAST.email})</dd>`);
+  // Budgivare visas anonymt för uppdragsgivaren (Åkeri A, B, C); admin ser namnen
+  const bidHaulerIds = [...new Set(bids.map(x => x.haulerId))];
+  const haulerAlias = (id) => 'Åkeri ' + String.fromCharCode(65 + Math.max(0, bidHaulerIds.indexOf(id)));
 
   const bookingImgUrl = blobToUrl(b.bookingImageUrl || b.bookingImage);
   const proofImgUrl = blobToUrl(b.proofImageUrl || b.proofImage);
@@ -6022,7 +6030,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
               : (BID_STATUS_LABEL[bd.status] || bd.status);
             const canAct = bd.status === 'pending' && lastBy === 'hauler';
             return `<tr>
-              <td><b>${esc(h?.name || '?')}</b>${h?.company ? ' · ' + esc(h.company) : ''}</td>
+              <td><b>${isAdmin ? esc(h?.name || '?') + (h?.company ? ' · ' + esc(h.company) : '') : haulerAlias(bd.haulerId)}</b></td>
               <td><b>${fmtMoney(grossFromHauler(last))}</b></td>
               <td>${esc(statusLabel)}</td>
               <td class="muted" style="font-size:12px">${esc(history)}</td>
@@ -6038,7 +6046,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
     }
   }
 
-  const haulerLabel = hauler ? esc(hauler.name) + (hauler.company ? ' (' + esc(hauler.company) + ')' : '') : 'okänd åkare';
+  const haulerLabel = !hauler ? 'okänd åkare' : haulerShown ? esc(hauler.name) + (hauler.company ? ' (' + esc(hauler.company) + ')' : '') : 'ett åkeri via Hitta last';
   const statusBanner =
     b.status === 'open' ? `<div class="banner info">Körningen är <b>öppen</b>. Väntar på att en åkare ska acceptera.</div>`
     : b.status === 'accepted' ? `<div class="banner ok">Körningen är <b>accepterad</b> av ${haulerLabel}.</div>`
@@ -6145,14 +6153,14 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         ${hauler ? `
           <hr style="margin:14px 0;border:0;border-top:1px solid var(--line)">
           <dl class="kv">
-            <dt>Utförande åkare</dt><dd><b>${esc(hauler.name)}</b>${hauler.company ? ' · ' + esc(hauler.company) : ''}</dd>
+            <dt>Utförande åkare</dt><dd>${haulerShown ? `<b>${esc(hauler.name)}</b>${hauler.company ? ' · ' + esc(hauler.company) : ''}` : `<b>Åkeri via Hitta last</b><div class="muted" style="font-size:12px">Hitta last har avtalet med åkeriet. Frågor om lastning och leverans ställer du i chatten nedan.</div>`}</dd>
             ${haulerContact}
           </dl>` : ''}
         <div class="btn-row">${actions}</div>
       </div>
     </div>
     ${bidsBlock}
-    ${b.status !== 'open' ? `
+    ${b.status !== 'open' && haulerShown ? `
     <div class="card" id="assignment-card">
       <h3>Tilldelning</h3>
       <dl class="kv">
@@ -6230,7 +6238,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         const { error } = await sb.rpc('accept_booking', { p_booking_id: b.id, p_expected_price: b.price ?? null });
         if (error) throw error;
         await notifyBuyer(b, { type:'accepted', bookingId: b.id, message: `${me.name} har accepterat din körning ${b.fromLocation} → ${b.toLocation}.` });
-        toast('✅ Uppdrag accepterat. Kontaktuppgifter visas nu.');
+        toast('✅ Uppdrag accepterat. Lastningsuppgifter får du via Hitta last i chatten.');
         navigate('/booking/' + b.id);
       } catch (err) {
         console.error('Accept-fel:', err);
@@ -6285,7 +6293,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         const amount = Number(res?.amount) || 0;
         const gross = Number(res?.gross) || grossFromHauler(amount);
         await notifyBuyer(b, { type:'accepted', bookingId: b.id, message: `${me.name} accepterade ditt motbud ${fmtMoney(gross)} på ${b.fromLocation} → ${b.toLocation}.` });
-        toast('Motbud accepterat. Kontaktuppgifter visas nu.');
+        toast('Motbud accepterat. Lastningsuppgifter får du via Hitta last i chatten.');
         navigate('/booking/' + b.id);
       } catch (err) {
         console.error('Accept-counter-fel:', err);
@@ -6338,7 +6346,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         });
         if (error) throw error;
         const amount = Number(res?.amount) || 0;
-        await notify(res.hauler_id, { type:'bid_accepted', bookingId: b.id, message: `Ditt bud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation} accepterades. Kontaktuppgifter är nu synliga.` });
+        await notify(res.hauler_id, { type:'bid_accepted', bookingId: b.id, message: `Ditt bud ${fmtMoney(amount)} på ${b.fromLocation} → ${b.toLocation} accepterades.` });
         toast('Bud accepterat — körningen tilldelad');
         navigate('/booking/' + b.id);
       } catch (err) {
@@ -6495,14 +6503,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
       }
     };
   }
-  if (document.getElementById('toggleContactBtn')) {
-    document.getElementById('toggleContactBtn').onclick = async () => {
-      const fresh = await db.get('bookings', b.id);
-      fresh.contactVisible = !fresh.contactVisible;
-      await db.put('bookings', fresh);
-      navigate('/booking/' + fresh.id);
-    };
-  }
+
   if (document.getElementById('cancelBtn')) {
     document.getElementById('cancelBtn').onclick = async () => {
       // Förhandskoll: räkna bud + meddelanden + notifikationer som ska raderas
@@ -6574,11 +6575,10 @@ async function renderChat(b, buyer, hauler, me, ctx) {
     }
     const haulers = (await Promise.all(haulerIds.map(id => db.get('users', id))))
       .map((h, i) => h || { id: haulerIds[i], name: 'Borttagen användare', company: '' });
-    const dealClosed = b.status !== 'open';
     area.innerHTML = `
       <div class="chat-thread-list" id="thread-list">
         ${haulers.map((h, i) => `<div class="thread-item" data-hid="${h.id}">
-          <b>${dealClosed ? esc(h.name) : 'Åkare ' + String.fromCharCode(66 + i)}</b>${dealClosed && h.company ? ' · ' + esc(h.company) : ''}
+          <b>${isAdmin ? esc(h.name) + (h.company ? ' · ' + esc(h.company) : '') : 'Åkeri ' + String.fromCharCode(65 + i)}</b>
           <div class="muted" style="font-size:11px;margin-top:2px">${byHauler[h.id].length} meddelanden</div>
         </div>`).join('')}
       </div>
@@ -6613,33 +6613,28 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
   if (buyer.id) users[buyer.id] = buyer;
   users[threadHauler.id] = threadHauler;
 
-  const dealClosed = b.status !== 'open';
-  // Skriva: man måste vara part i konversationen (köpare eller tråd-åkare).
-  // Admin som är part får också skriva — bara "ren admin" (inte involverad) blockeras.
+  // Chatten är alltid anonym och går via Hitta last: åkeriet och uppdragsgivaren ser aldrig varandras namn
+  // eller kontaktuppgifter. Hitta last (admin) läser allt, kan skriva, och motparten får mejl automatiskt.
   const isInvolved = me.id === buyer.id || me.id === threadHauler.id;
   const chatClosed = b.status === 'completed' || b.status === 'cancelled' || !!buyer.deleted; // ingen att prata med, eller inget kvar att prata om
-  const canWrite = !chatClosed && isInvolved;
-  const adminOnlyViewer = isAdmin && !isInvolved;
+  const canWrite = !chatClosed && (isInvolved || isAdmin);
 
-  // Pseudonym före accept: A för uppdragsgivare, B för motparten
   const aliasFor = (uid) => {
-    if (dealClosed) return users[uid]?.name || '?';
-    if (uid === threadHauler.id) return 'Åkare B';
-    if (uid === buyer.id || !buyer.id) return 'Uppdragsgivare A'; // dold uppdragsgivare: den som inte är åkaren
-    return 'Användare';
+    if (uid === me.id) return 'Du';
+    if (isAdmin) return users[uid]?.name || (uid === threadHauler.id ? 'Åkeriet' : 'Uppdragsgivaren');
+    if (uid === threadHauler.id) return 'Åkeriet';
+    if (buyer.id && uid === buyer.id) return 'Uppdragsgivaren (via Hitta last)';
+    return 'Hitta last';
   };
 
   body.innerHTML = `
-    ${!dealClosed ? `<div class="banner warn" style="margin-bottom:10px">⚠ Anonym chatt: namn, företag, telefon, e-post och webbadresser döljs automatiskt tills uppdraget är accepterat.</div>` : ''}
+    <div class="banner warn" style="margin-bottom:10px">⚠ Anonym chatt via Hitta last. Namn, telefon, e-post, webbadresser och priser får inte skickas, de stoppas automatiskt. Priser hanteras bara via bud. Motparten får ditt meddelande i sin chatt och som mejl.</div>
     <div class="chat" id="chat-box">
       ${msgs.length === 0 ? `<div class="muted" style="text-align:center;padding:20px">Inga meddelanden ännu</div>` : ''}
       ${msgs.map(m => {
         const isMe = m.senderId === me.id;
         const who = aliasFor(m.senderId);
-        let txt = m.content;
-        if (!dealClosed && m.senderId !== me.id) {
-          txt = detectContact(txt, partyNames(buyer, threadHauler)).masked;
-        }
+        const txt = m.content;
         return `<div class="msg ${isMe ? 'me' : 'them'}">
           <div class="who">${esc(who)}</div>
           <div>${esc(txt)}</div>
@@ -6653,7 +6648,6 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
         <button id="chat-send">Skicka</button>
       </div>
       <div id="chat-warn" class="banner err" style="display:none;margin-top:6px"></div>`
-      : adminOnlyViewer ? `<div class="muted" style="margin-top:8px;font-size:12px">Du ser chatten som admin men kan inte skriva (du är inte part i konversationen).</div>`
       : chatClosed ? `<div class="muted" style="margin-top:8px;font-size:12px">Chatten är låst — ${b.status === 'cancelled' ? 'uppdraget är avbrutet' : buyer.deleted ? 'uppdragsgivaren har avslutat sitt konto' : 'uppdraget är utfört'}.</div>`
       : ''}
   `;
@@ -6667,12 +6661,12 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
     const txtEl = document.getElementById('chat-txt');
     const raw = txtEl.value.trim();
     if (!raw) return;
-    if (!dealClosed) {
+    if (!isAdmin) {
       const det = detectContact(raw, partyNames(buyer, threadHauler));
       if (det.hits.length > 0) {
         const w = document.getElementById('chat-warn');
         w.style.display = '';
-        w.innerHTML = `🚫 Det är inte tillåtet att dela kontaktuppgifter (${det.hits.join(', ')}) i chatten innan uppdraget är accepterat. Meddelandet skickades inte.`;
+        w.innerHTML = `🚫 Chatten får inte innehålla kontaktuppgifter eller priser (${det.hits.join(', ')}). Priser hanteras via bud och accept, kontakt går via Hitta last. Meddelandet skickades inte.`;
         return;
       }
     }
@@ -6688,8 +6682,9 @@ async function renderChatThread(b, buyer, threadHauler, me, ctx) {
         content: raw,
         createdAt: Date.now(),
       });
-      const msgPayload = { type:'new_message', bookingId: b.id, message: `Nytt meddelande från ${aliasFor(me.id)} i chatt om ${b.fromLocation} → ${b.toLocation}.` };
-      if (buyer.id && me.id === buyer.id) await notify(threadHauler.id, msgPayload);
+      const msgPayload = { type:'new_message', bookingId: b.id, message: `Nytt meddelande i chatt om ${b.fromLocation} → ${b.toLocation}.` };
+      if (isAdmin && !isInvolved) { await notify(threadHauler.id, msgPayload); await notifyBuyer(b, msgPayload); }
+      else if (buyer.id && me.id === buyer.id) await notify(threadHauler.id, msgPayload);
       else await notifyBuyer(b, msgPayload);
       renderChatThread(b, buyer, threadHauler, me, ctx);
     } catch (err) {
