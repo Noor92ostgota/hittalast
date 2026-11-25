@@ -1431,8 +1431,10 @@ async function render() {
     }
   }
 
+  // Matcha utan frågesträng: #/stats?period=month och #/settlement?period=all ska träffa sina rutter
+  const hashPath = hash.split('?')[0];
   for (const r of routes) {
-    const m = hash.match(r.pattern);
+    const m = hashPath.match(r.pattern);
     if (m) {
       try { await r.handler(m, user); }
       catch (e) {
