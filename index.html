@@ -4605,12 +4605,14 @@ route(/^\/free-vehicles$/, async (_m, u) => {
     }
   }
   const importedCount = active.filter(fv => fv.importSourceId).length;
+  // Mina öppna körningar, för att kunna föreslå en av dem till en ledig bil
+  const myOpen = u.role === 'admin' ? [] : (await db.byIndex('bookings', 'buyerId', u.id)).filter(b => b.status === 'open');
   mount(`
     <h2>🚚 Lediga bilar (${active.length})</h2>
     <div class="btn-row">
       ${canAcceptAndPost(u) ? `<a class="btn" href="#/free-vehicles/new">➕ Lägg till ledig bil</a>` : ''}
     </div>
-    <div class="banner info">Här ser du tillgängliga fordon som söker last. Kontakta åkaren för att matcha med en körning.${importedCount ? ` Bilar märkta 📨 kommer från transportköpares mejl ("öppen för förslag") och förmedlas av Hitta last.` : ''}</div>
+    <div class="banner info">Lediga bilar som söker last. Har du gods som passar klickar du <b>Föreslå last</b> på bilen: förslaget går till Hitta last som matchar och tar kontakt med båda parter. Inga kontaktuppgifter byts direkt.${importedCount ? ` Bilar märkta 📨 kommer från transportköpares mejl ("öppen för förslag").` : ''}</div>
     <div class="card">
       ${active.length === 0 ? `<div class="empty">Inga lediga bilar just nu.</div>`
       : `<table class="compact">
@@ -4640,18 +4642,54 @@ route(/^\/free-vehicles$/, async (_m, u) => {
                 ? (u.role === 'admin'
                     ? `<span class="badge" style="background:#fed7aa;color:#9a3412;font-weight:600">📨 ${esc(senderNames[fv.senderInvitationId] || 'via mejl')}</span>`
                     : `<span class="badge" style="background:#fed7aa;color:#9a3412;font-weight:600">📨 Mejlförfrågan</span><br><span class="muted" style="font-size:11px">kontakt via hittalast</span>`)
-                : `${owner ? esc(owner.company || owner.name) : '—'}<br><span class="muted" style="font-size:11px">${owner ? esc(owner.phone || owner.email) : ''}</span>`}</td>
+                : (u.role === 'admin'
+                    ? `${owner ? esc(owner.company || owner.name) : '—'}<br><span class="muted" style="font-size:11px">${owner ? esc(owner.phone || owner.email || '') : ''}</span>`
+                    : `${isMine ? 'Min bil' : (owner ? esc(owner.company || owner.name) : 'Åkeri')}<br><span class="muted" style="font-size:11px">kontakt via Hitta last</span>`)}</td>
               <td style="font-size:12px">${esc(fv.comment || '')}</td>
               <td class="nowrap">${isMine || u.role === 'admin'
                 ? `<a class="btn secondary icon-btn" href="#/free-vehicles/${fv.id}/edit" title="Ändra">✏️</a>
                    <button class="danger icon-btn" data-delfv="${fv.id}" title="Ta bort">🗑</button>`
-                : ''}</td>
-            </tr>`;
+                : ''}${!isMine && u.role !== 'admin' ? `<button class="secondary" data-propose="${fv.id}" style="padding:6px 10px">✉ Föreslå last</button>` : ''}</td>
+            </tr>
+            <tr class="propose-row" id="propose-${fv.id}" style="display:none"><td colspan="7">
+              <div class="card" style="margin:6px 0;background:var(--bg)">
+                <b>Föreslå last till ${esc(fv.currentLocation || '')} → ${fv.anywhere ? 'vart som helst' : esc(fv.destination || '')}</b>
+                <div class="muted" style="font-size:12px;margin:4px 0 8px">Välj en av dina öppna körningar eller beskriv lasten. Hitta last får förslaget och tar kontakt med dig och åkeriet. Inga priser eller kontaktuppgifter här.</div>
+                <div class="row">
+                  <div class="field"><label>Min körning</label><select data-propose-booking="${fv.id}"><option value="">— Ingen, jag beskriver lasten —</option>${myOpen.map(b => `<option value="${b.id}">${esc(b.fromLocation)} → ${esc(b.toLocation)}${b.loadDate ? ' · ' + esc(b.loadDate) : ''}</option>`).join('')}</select></div>
+                  <div class="field"><label>Beskrivning</label><input data-propose-text="${fv.id}" placeholder="t.ex. 12 pall Linköping till Göteborg, lastas torsdag"></div>
+                </div>
+                <div class="btn-row"><button class="ok" data-propose-send="${fv.id}">Skicka förslag till Hitta last</button><button class="secondary" data-propose-cancel="${fv.id}">Avbryt</button></div>
+              </div>
+            </td></tr>`;
           }).join('')}
           </tbody>
         </table>`}
     </div>
   `);
+  document.querySelectorAll('button[data-propose]').forEach(btn => {
+    btn.onclick = () => {
+      const row = document.getElementById('propose-' + btn.dataset.propose);
+      if (row) row.style.display = row.style.display === 'none' ? '' : 'none';
+    };
+  });
+  document.querySelectorAll('button[data-propose-cancel]').forEach(btn => {
+    btn.onclick = () => { const row = document.getElementById('propose-' + btn.dataset.proposeCancel); if (row) row.style.display = 'none'; };
+  });
+  document.querySelectorAll('button[data-propose-send]').forEach(btn => {
+    btn.onclick = () => withLock(btn, '⏳ Skickar…', async () => {
+      const id = btn.dataset.proposeSend;
+      const bookingId = document.querySelector(`select[data-propose-booking="${id}"]`)?.value || null;
+      const text = (document.querySelector(`input[data-propose-text="${id}"]`)?.value || '').trim();
+      if (!bookingId && !text) { toast('Välj en körning eller beskriv lasten', 'err'); return; }
+      const det = detectContact(text);
+      if (det.hits.length) { toast(`Beskrivningen får inte innehålla ${det.hits.join(', ')}. Hitta last tar kontakt.`, 'err'); return; }
+      const { error } = await sb.rpc('propose_load', { p_free_vehicle: id, p_booking: bookingId, p_message: text || null });
+      if (error) { toast('Kunde inte skicka: ' + friendlyError(error), 'err'); return; }
+      toast('✅ Förslaget är skickat till Hitta last, vi hör av oss.');
+      const row = document.getElementById('propose-' + id); if (row) row.style.display = 'none';
+    });
+  });
   document.querySelectorAll('button[data-delfv]').forEach(btn => {
     btn.onclick = async () => {
       if (!confirm('Ta bort den lediga bilen?')) return;
