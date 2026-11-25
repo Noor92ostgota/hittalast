@@ -1205,7 +1205,7 @@ async function haulerComplianceBanner(u) {
   const missing = [!c?.permitDocPath ? 'trafiktillstånd' : '', !c?.fskattDocPath ? 'F-skattsedel' : ''].filter(Boolean);
   return `<div class="banner warn">🛂 ${missing.length
     ? `För att kunna lägga bud och ta uppdrag behöver du <a href="#/dokument"><b>ladda upp ${missing.join(' och ')}</b></a>. Hitta last kontrollerar och godkänner, normalt inom en arbetsdag.`
-    : `Dina dokument är uppladdade. Hitta last kontrollerar trafiktillstånd och F-skatt, normalt inom en arbetsdag. Tills dess kan du se körningar men inte lägga bud. <a href="#/dokument">Mina dokument</a>`}${!u.orgNr ? ' <b>Fyll även i organisationsnummer under Mitt konto.</b>' : ''}</div>`;
+    : `Dina dokument är uppladdade. Hitta last kontrollerar trafiktillstånd och F-skatt, normalt inom en arbetsdag. Tills dess kan du se körningar men inte priser, och inte lägga bud. <a href="#/dokument">Mina dokument</a>`}${!u.orgNr ? ' <b>Fyll även i organisationsnummer under Mitt konto.</b>' : ''}</div>`;
 }
 // Uppladdning till privat bucket (egen mapp per åkeri) och registrering via RPC. Används på /dokument.
 function bindComplianceDocs(uid) {
@@ -6271,7 +6271,8 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
 
   let bidsBlock = '';
   // bids_v ger uppdragsgivaren budbeloppen redan som kundpris; admin läser åkarpris och räknar upp med påslaget
-  const bidShown = (x) => isAdmin ? grossFromHauler(x) : Number(x);
+  // Admin får kundpriset färdigräknat från bids_v (r.gross); uppdragsgivaren får sitt belopp redan i r.amount
+  const bidShown = (r) => !r ? null : (isAdmin ? Number(r.gross ?? grossFromHauler(r.amount)) : Number(r.amount));
   if (isBuyer && b.status === 'open') {
     if (bids.length === 0) {
       bidsBlock = b.price == null
@@ -6286,20 +6287,20 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
           <tbody>
           ${bids.map(bd => {
             const h = haulersById[bd.haulerId];
-            const last = latestBidAmount(bd);
+            const last = bidShown(bd.rounds[bd.rounds.length - 1]);
             const lastBy = latestBidBy(bd);
-            const history = bd.rounds.map(r => `${r.by==='hauler'?'Åkare':'Du'}: ${fmtMoney(bidShown(r.amount))}`).join(' → ');
+            const history = bd.rounds.map(r => `${r.by==='hauler'?'Åkare':'Du'}: ${fmtMoney(bidShown(r))}`).join(' → ');
             const statusLabel = bd.status === 'pending'
               ? (lastBy === 'hauler' ? 'Väntar på ditt svar' : 'Motbud skickat — väntar på åkare')
               : (BID_STATUS_LABEL[bd.status] || bd.status);
             const canAct = bd.status === 'pending' && lastBy === 'hauler';
             return `<tr>
               <td><b>${isAdmin ? esc(h?.name || '?') + (h?.company ? ' · ' + esc(h.company) : '') : haulerAlias(bd.haulerId)}</b></td>
-              <td><b>${fmtMoney(bidShown(last))}</b></td>
+              <td><b>${fmtMoney(last)}</b></td>
               <td>${esc(statusLabel)}</td>
               <td class="muted" style="font-size:12px">${esc(history)}</td>
               <td>${canAct ? `
-                <button class="ok" data-acceptbid="${bd.id}" data-amount="${esc(bidShown(last))}">✓ Acceptera ${fmtMoney(bidShown(last))}</button>
+                <button class="ok" data-acceptbid="${bd.id}" data-amount="${esc(last)}">✓ Acceptera ${fmtMoney(last)}</button>
                 <input type="number" min="1" step="1" data-counter-input="${bd.id}" placeholder="Motbud (ditt pris)" class="counter-inp">
                 <button class="secondary" data-counterbid="${bd.id}">↩ Motbud</button>
                 <button class="danger" data-rejectbid="${bd.id}">Avslå</button>` : ''}</td>
@@ -6497,7 +6498,8 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
         if (!me || !me.id) { toast('Du måste vara inloggad', 'err'); return navigate('/login'); }
         // Säker databasfunktion: accepterar, sätter provision och avslår övriga väntande bud
         // Priset som visades på knappen skickas med – ändras det under tiden nekas accepten
-        const { error } = await sb.rpc('accept_booking', { p_booking_id: b.id, p_expected_price: b.price ?? null });
+        // Skicka åkarpriset som visades (för admin är b.price kundpriset, därför haulerPriceOf)
+        const { error } = await sb.rpc('accept_booking', { p_booking_id: b.id, p_expected_price: b.price == null ? null : haulerPriceOf(b) });
         if (error) throw error;
         await notifyBuyer(b, { type:'accepted', bookingId: b.id, message: `${me.name} har accepterat din körning ${b.fromLocation} → ${b.toLocation}.` });
         toast('✅ Uppdrag accepterat. Lastningsuppgifter får du via Hitta last i chatten.');
