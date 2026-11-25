@@ -1193,17 +1193,79 @@ async function haulerComplianceBanner(u) {
   const c = await loadCompliance(u.id);
   if (complianceOk(c)) {
     const until = [c.permitValidUntil, c.fskattValidUntil].filter(Boolean).map(tsMs).sort()[0];
-    return `<div class="muted" style="margin:-6px 0 12px;font-size:13px">✅ Trafiktillstånd och F-skatt kontrollerade av Hitta last${until ? ', giltigt till ' + localIso(new Date(until)) : ''}.</div>`;
+    return `<div class="muted" style="margin:-6px 0 12px;font-size:13px">✅ Trafiktillstånd och F-skatt godkända av Hitta last${until ? ', giltigt till ' + localIso(new Date(until)) : ''}. <a href="#/dokument">Mina dokument</a></div>`;
   }
   if (c && (c.permitStatus === 'rejected' || c.fskattStatus === 'rejected')) {
-    return `<div class="banner err">❌ Kontrollen av ${c.permitStatus === 'rejected' ? 'trafiktillstånd' : 'F-skatt'} gick inte igenom. Du kan inte lägga bud eller ta uppdrag. Kontakta ${HITTA_LAST.email} om uppgifterna är fel.</div>`;
+    return `<div class="banner err">❌ Kontrollen av ${c.permitStatus === 'rejected' ? 'trafiktillstånd' : 'F-skatt'} gick inte igenom. Du kan inte lägga bud eller ta uppdrag. <a href="#/dokument">Ladda upp ett nytt dokument</a> eller kontakta ${HITTA_LAST.email}.</div>`;
   }
-  return `<div class="banner warn">🛂 Vi kontrollerar ditt trafiktillstånd hos Transportstyrelsen och din F-skatt hos Skatteverket. Det tar normalt en arbetsdag. Tills dess kan du se körningar men inte lägga bud eller ta uppdrag.${!u.orgNr ? ' <b>Fyll i organisationsnummer under Mitt konto så vi kan göra kontrollen.</b>' : ''}</div>`;
+  const missing = [!c?.permitDocPath ? 'trafiktillstånd' : '', !c?.fskattDocPath ? 'F-skattsedel' : ''].filter(Boolean);
+  return `<div class="banner warn">🛂 ${missing.length
+    ? `För att kunna lägga bud och ta uppdrag behöver du <a href="#/dokument"><b>ladda upp ${missing.join(' och ')}</b></a>. Hitta last kontrollerar och godkänner, normalt inom en arbetsdag.`
+    : `Dina dokument är uppladdade. Hitta last kontrollerar trafiktillstånd och F-skatt, normalt inom en arbetsdag. Tills dess kan du se körningar men inte lägga bud. <a href="#/dokument">Mina dokument</a>`}${!u.orgNr ? ' <b>Fyll även i organisationsnummer under Mitt konto.</b>' : ''}</div>`;
+}
+// Åkeriets egen sida för dokumenten
+route(/^\/dokument$/, async (_m, u) => {
+  if (!u || u.role !== 'akare') return navigate('/');
+  const c = await loadCompliance(u.id);
+  const docRow = (field, label, help, status, until, docPath, uploadedAt) => `
+    <div class="card">
+      <h3 style="margin-top:0">${label} ${complianceBadge(status, until)}</h3>
+      <p class="muted" style="font-size:13px">${help}</p>
+      <div class="muted" style="font-size:13px;margin-bottom:8px">${docPath ? `📎 Dokument uppladdat ${fmtDate(uploadedAt)} <button type="button" class="secondary" data-viewdoc="${esc(docPath)}" style="padding:4px 8px;margin-left:6px">Visa</button>` : 'Inget dokument uppladdat ännu.'}</div>
+      <div class="field"><label>${docPath ? 'Ladda upp ett nytt' : 'Ladda upp'} (PDF, JPG eller PNG, max 10 MB)</label><input type="file" data-updoc="${field}" accept="application/pdf,image/*"></div>
+    </div>`;
+  mount(`
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <a href="#/" class="btn secondary">← Tillbaka</a>
+      <h2 style="margin:0">🛂 Mina dokument</h2>
+    </div>
+    <div class="banner info">Hitta last är speditör och ansvarar för att alla åkerier har giltigt yrkestrafiktillstånd och F-skatt (beställaransvar). Ladda upp dina dokument här, så kontrollerar vi dem och godkänner ditt åkeri. Därefter kan du lägga bud och ta uppdrag.${!u.orgNr ? ' Fyll även i organisationsnummer under Mitt konto.' : ''}</div>
+    ${docRow('permit', 'Yrkestrafiktillstånd', 'Tillståndsbeviset från Transportstyrelsen (eller gemenskapstillståndet). Vi kontrollerar också mot Transportstyrelsens register.', c?.permitStatus || 'pending', c?.permitValidUntil, c?.permitDocPath, c?.permitDocUploadedAt)}
+    ${docRow('fskatt', 'F-skattsedel', 'Registerutdrag eller beslut från Skatteverket som visar att företaget är godkänt för F-skatt.', c?.fskattStatus || 'pending', c?.fskattValidUntil, c?.fskattDocPath, c?.fskattDocUploadedAt)}
+  `);
+  bindComplianceDocs(u.id);
+});
+// Uppladdning till privat bucket (egen mapp per åkeri) och registrering via RPC. Används på /dokument.
+function bindComplianceDocs(uid) {
+  document.querySelectorAll('input[data-updoc]').forEach(inp => {
+    inp.onchange = async () => {
+      const file = inp.files && inp.files[0];
+      if (!file) return;
+      if (file.size > 10 * 1024 * 1024) { toast('Filen är större än 10 MB', 'err'); inp.value = ''; return; }
+      inp.disabled = true;
+      try {
+        const ext = ((file.name.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g, '') || 'pdf').slice(0, 5);
+        const path = `${uid}/${inp.dataset.updoc}-${Date.now()}.${ext}`;
+        const { error: upErr } = await sb.storage.from('compliance-docs').upload(path, file, { contentType: file.type || 'application/pdf' });
+        if (upErr) throw upErr;
+        const { error } = await sb.rpc('set_compliance_doc', { p_field: inp.dataset.updoc, p_path: path });
+        if (error) throw error;
+        toast('✅ Dokumentet är uppladdat. Hitta last kontrollerar det.');
+        render();
+      } catch (err) {
+        console.error('dokument', err);
+        toast('Kunde inte ladda upp: ' + friendlyError(err), 'err');
+        inp.disabled = false; inp.value = '';
+      }
+    };
+  });
+  bindViewDocs();
+}
+// Visa ett uppladdat dokument via tidsbegränsad länk (egen mapp eller admin)
+function bindViewDocs() {
+  document.querySelectorAll('button[data-viewdoc]').forEach(btn => {
+    btn.onclick = async () => {
+      const { data, error } = await sb.storage.from('compliance-docs').createSignedUrl(btn.dataset.viewdoc, 600);
+      if (error || !data?.signedUrl) { toast('Kunde inte öppna dokumentet: ' + friendlyError(error || {}), 'err'); return; }
+      window.open(data.signedUrl, '_blank', 'noopener');
+    };
+  });
 }
 function complianceAdminBlock(target, c) {
-  const row = (field, label, status, checkedAt, until) => `
+  const row = (field, label, status, checkedAt, until, docPath, uploadedAt) => `
     <tr>
-      <td><b>${label}</b><div class="muted" style="font-size:12px"><a href="${CHECK_LINKS[field]}" target="_blank" rel="noopener">Öppna myndighetens e-tjänst ↗</a></div></td>
+      <td><b>${label}</b><div class="muted" style="font-size:12px"><a href="${CHECK_LINKS[field]}" target="_blank" rel="noopener">Öppna myndighetens e-tjänst ↗</a></div>
+        <div style="font-size:12px;margin-top:4px">${docPath ? `📎 Åkeriets dokument (${fmtDate(uploadedAt)}) <button type="button" class="secondary" data-viewdoc="${esc(docPath)}" style="padding:2px 8px">Visa</button>` : '<span class="muted">Inget dokument uppladdat</span>'}</div></td>
       <td>${complianceBadge(status, until)}${checkedAt ? `<div class="muted" style="font-size:11px">kontrollerad ${fmtDate(checkedAt)}</div>` : ''}</td>
       <td class="nowrap">
         <button type="button" class="ok" data-comp="${field}" data-status="approved">✓ Godkänn</button>
@@ -1213,12 +1275,12 @@ function complianceAdminBlock(target, c) {
     </tr>`;
   return `<div class="card" style="margin-top:14px">
     <h3>🛂 Beställaransvar: trafiktillstånd och F-skatt</h3>
-    <div class="muted" style="font-size:13px;margin-bottom:10px">Org.nr <b>${esc(target.orgNr || 'saknas')}</b>. Slå upp org.nr i e-tjänsterna (svaret kommer per mejl), godkänn här och anteckna datum för svaret. Åkeriet kan lägga bud först när båda är godkända. Giltigheten löper ut automatiskt och då aviseras du igen.</div>
+    <div class="muted" style="font-size:13px;margin-bottom:10px">Org.nr <b>${esc(target.orgNr || 'saknas')}</b>. Åkeriet laddar själv upp tillstånd och F-skattsedel. Granska dokumenten, slå gärna upp org.nr i e-tjänsterna också (svaret kommer per mejl), godkänn här och anteckna. Åkeriet kan lägga bud först när båda är godkända. Giltigheten löper ut automatiskt och då aviseras du igen.</div>
     <table class="compact">
       <thead><tr><th>Kontroll</th><th>Status</th><th></th></tr></thead>
       <tbody>
-        ${row('permit', 'Yrkestrafiktillstånd (Transportstyrelsen)', c?.permitStatus || 'pending', c?.permitCheckedAt, c?.permitValidUntil)}
-        ${row('fskatt', 'F-skatt (Skatteverket)', c?.fskattStatus || 'pending', c?.fskattCheckedAt, c?.fskattValidUntil)}
+        ${row('permit', 'Yrkestrafiktillstånd (Transportstyrelsen)', c?.permitStatus || 'pending', c?.permitCheckedAt, c?.permitValidUntil, c?.permitDocPath, c?.permitDocUploadedAt)}
+        ${row('fskatt', 'F-skatt (Skatteverket)', c?.fskattStatus || 'pending', c?.fskattCheckedAt, c?.fskattValidUntil, c?.fskattDocPath, c?.fskattDocUploadedAt)}
       </tbody>
     </table>
     <div class="row" style="margin-top:10px">
@@ -1228,6 +1290,7 @@ function complianceAdminBlock(target, c) {
   </div>`;
 }
 function bindComplianceAdmin(target) {
+  bindViewDocs();
   document.querySelectorAll('button[data-comp]').forEach(btn => {
     btn.onclick = () => withLock(btn, '⏳', async () => {
       const note = (document.getElementById('compNote')?.value || '').trim() || null;
@@ -2419,6 +2482,7 @@ route(/^\/konto$/, async (_m, u) => {
         <a class="btn secondary" href="#/integritet">Integritetspolicy</a>
         <a class="btn secondary" href="#/villkor">Villkor</a>
         <a class="btn secondary" href="#/nytt-losenord">Byt lösenord</a>
+        ${u.role === 'akare' ? `<a class="btn secondary" href="#/dokument">🛂 Mina dokument</a>` : ''}
         <a class="btn secondary" href="#/" id="logoutMe">Logga ut</a>
       </div>
     </div>
@@ -5410,8 +5474,8 @@ async function adminDashboard(u) {
         <tbody>${pendingChecks.map(c => `<tr>
           <td><b>${esc(byId[c.profileId]?.company || byId[c.profileId]?.name || '?')}</b><div class="muted" style="font-size:11px">${esc(byId[c.profileId]?.email || '')}</div></td>
           <td>${esc(c.orgNr || byId[c.profileId]?.orgNr || 'saknas')}</td>
-          <td>${complianceBadge(c.permitStatus, c.permitValidUntil)}</td>
-          <td>${complianceBadge(c.fskattStatus, c.fskattValidUntil)}</td>
+          <td>${complianceBadge(c.permitStatus, c.permitValidUntil)}${c.permitDocPath ? ' 📎' : ''}</td>
+          <td>${complianceBadge(c.fskattStatus, c.fskattValidUntil)}${c.fskattDocPath ? ' 📎' : ''}</td>
           <td class="nowrap"><a class="btn secondary" href="#/users/${c.profileId}/edit" style="padding:4px 8px">Kontrollera</a></td>
         </tr>`).join('')}</tbody>
       </table>
@@ -6049,7 +6113,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
   const myCompliance = (isOtherHauler && b.status === 'open' && me && me.role === 'akare') ? await loadCompliance(me.id) : null;
   const haulerBlocked = isOtherHauler && b.status === 'open' && me && me.role === 'akare' && !complianceOk(myCompliance);
   if (haulerBlocked) {
-    actions = `<div class="banner warn">🛂 Du kan lägga bud och ta uppdrag när Hitta last har kontrollerat ditt trafiktillstånd och din F-skatt. Det tar normalt en arbetsdag.${!me.orgNr ? ' Fyll i organisationsnummer under Mitt konto.' : ''}</div>`;
+    actions = `<div class="banner warn">🛂 Du kan lägga bud och ta uppdrag när Hitta last har kontrollerat ditt trafiktillstånd och din F-skatt. <a href="#/dokument">Ladda upp dokumenten här</a>, det tar normalt en arbetsdag.${!me.orgNr ? ' Fyll i organisationsnummer under Mitt konto.' : ''}</div>`;
   } else if (isOtherHauler && b.status === 'open') {
     if (myBid) {
       const last = latestBidAmount(myBid);
