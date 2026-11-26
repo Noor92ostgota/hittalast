@@ -150,7 +150,7 @@
   .nav-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:998}
   .nav-backdrop.open{display:block}
 
-  /* ============== LANDING PAGE (lansering 30 november) ============== */
+  /* ============== LANDING PAGE (lansering 18 januari 2027) ============== */
   .landing{min-height:100vh;background:linear-gradient(135deg,#0a0a0a 0%,#1f1f1f 60%,#2d2d2d 100%);color:#fff;position:relative;overflow:hidden}
   .landing::before{content:"";position:absolute;top:-10%;left:-10%;width:60%;height:60%;background:radial-gradient(circle,rgba(249,115,22,.18) 0%,transparent 70%);pointer-events:none}
   .landing::after{content:"";position:absolute;bottom:-30%;right:-10%;width:70%;height:70%;background:radial-gradient(circle,rgba(249,115,22,.12) 0%,transparent 70%);pointer-events:none}
@@ -1337,10 +1337,10 @@ function markupOf(b) {
 function withVat(n) { return n == null ? null : Math.round(n * (1 + VAT_RATE) * 100) / 100; }
 function canSeeCommission(u) { return !!u && u.role === 'admin'; }
 
-// ============== LANSERING — 30 november 2026 06:00 svensk tid ==============
+// ============== LANSERING: 18 januari 2027 06:00 svensk tid (flyttad från 30 nov 2026 på Noors beslut 2026-11-26) ==============
 // Styr landningssidan (väntelista före, registrering efter).
-// Lanseringsmejlet skickas av pg_cron-jobbet send-launch-emails-30nov i databasen – flytta det också om datumet ändras.
-const LAUNCH_DATE = new Date('2026-11-30T06:00:00+01:00'); // vintertid (CET) i november
+// Lanseringsmejlet skickas av pg_cron-jobbet send-launch-emails-18jan i databasen (och LAUNCH_AT i edge-funktionen send-launch-emails), flytta dem också om datumet ändras.
+const LAUNCH_DATE = new Date('2027-01-18T06:00:00+01:00'); // vintertid (CET) i januari
 function isLaunched() { return Date.now() >= LAUNCH_DATE.getTime(); }
 function launchDateLong() { return LAUNCH_DATE.toLocaleDateString('sv-SE', { day: 'numeric', month: 'long' }); }
 function launchDateShort() { return LAUNCH_DATE.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' }); }
@@ -2840,12 +2840,12 @@ async function publicDashboard() {
   // Olika UI före och efter lansering
   const eyebrow = launched
     ? '<span class="landing-eyebrow" style="background:rgba(34,197,94,.15);color:#86efac">🟢 Live nu — skapa ditt konto</span>'
-    : '<span class="landing-eyebrow">🟡 Lansering 30 november 2026 — gå med i väntelistan</span>';
+    : '<span class="landing-eyebrow">🟡 Lansering 18 januari 2027, gå med i väntelistan</span>';
 
   const ctaCard = launched ? `
     <div class="landing-card">
       <h2 style="margin-top:0">Kom igång nu</h2>
-      <p class="lead">Gratis för åkerier. Inget abonnemang, ingen bindningstid. Hitta last förmedlar som speditör och du fakturerar oss.</p>
+      <p class="lead">Gratis för åkerier och transportköpare. Inget abonnemang, ingen bindningstid.</p>
       <a href="#/signup" class="btn-primary" style="display:block;text-align:center;text-decoration:none;margin-top:20px;padding:18px;font-size:17px;font-weight:700">🚀 Skapa konto</a>
       <a href="#/login" class="btn-secondary-landing" style="display:block;text-align:center;text-decoration:none;margin-top:12px;padding:16px;font-size:15px;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:10px">Logga in</a>
       <p class="fineprint" style="margin-top:20px">Har du redan ett konto eller fått en inbjudningslänk? Klicka logga in eller använd länken i mejlet.</p>
@@ -2854,7 +2854,7 @@ async function publicDashboard() {
     <div class="landing-card">
       <div id="signup-area">
         <h2>Gå med i väntelistan</h2>
-        <p class="lead">Var bland de första att få inbjudan när vi öppnar 30 november. Ingen förpliktelse, du kan avregistrera dig när som helst.</p>
+        <p class="lead">Var bland de första att få inbjudan när vi öppnar 18 januari. Ingen förpliktelse, du kan avregistrera dig när som helst.</p>
         <form id="waitlist-form">
           <label>E-postadress *</label>
           <input type="email" name="email" required autocomplete="email" maxlength="254" pattern="[^@\\s]+@[^@\\s]+\\.[A-Za-z]{2,}" title="Ange en e-postadress, till exempel namn@foretag.se">
@@ -2905,14 +2905,15 @@ async function publicDashboard() {
             ${eyebrow}
             <h1 class="landing-h1">Minska <span class="accent">tomkörningar</span>, öka lönsamheten och maximera kapaciteten i varje fordon.</h1>
             <p class="landing-sub">
-              Hitta last är en digital speditör för åkerier och transportköpare. Vi förmedlar körningar enligt NSAB 2015: du lägger bud eller accepterar direkt, kör och fakturerar Hitta last. Gratis för åkerier, inget abonnemang.
+              Hitta last är Sveriges digitala speditör för åkerier och transportköpare. Lägg ut laster, lägg bud, hitta returlast och följ varje körning från lastning till lossning, allt på ett ställe. Gratis för åkerier och transportköpare, inget abonnemang.
             </p>
             <ul class="landing-bullets">
-              <li>Gratis för åkerier, inget abonnemang</li>
-              <li>Hitta last förmedlar som speditör enligt NSAB 2015</li>
-              <li>En motpart: du fakturerar Hitta last, vi fakturerar uppdragsgivaren</li>
-              <li>Tydliga priser: åkeriet ser sitt pris, uppdragsgivaren sitt</li>
-              <li>Färre mejl, alla uppdrag samlade på ett ställe</li>
+              <li>Gratis för åkerier och transportköpare, inget abonnemang</li>
+              <li>Hitta returlast och fyll tomma mil med lediga bilar</li>
+              <li>Avisering direkt när chauffören lastat, är på väg eller lossat</li>
+              <li>Digital fraktsedel och färdigt fakturaunderlag på varje körning</li>
+              <li>Alla åkerier kontrollerade: trafiktillstånd och F-skatt</li>
+              <li>Färre samtal och mejl, alla uppdrag samlade på ett ställe</li>
             </ul>
             ${launched ? '' : `<div class="countdown" id="countdown">${renderCountdown()}</div>`}
           </div>
@@ -2922,29 +2923,44 @@ async function publicDashboard() {
 
         <div class="landing-features">
           <div class="feature">
-            <span class="feature-icon">🚛</span>
-            <h3>Lediga bilar</h3>
-            <p>Åkerier och transportköpare publicerar lediga fordon med plats, rutt och tider. Andra ser bilarna och föreslår last, Hitta last förmedlar kontakten.</p>
+            <span class="feature-icon">📦</span>
+            <h3>Erbjud last</h3>
+            <p>Publicera en körning på en minut och nå hundratals åkerier. Buden kommer direkt i appen, du jämför och väljer det som passar. Ett pris, exkl. moms, inga överraskningar.</p>
           </div>
           <div class="feature">
-            <span class="feature-icon">💬</span>
-            <h3>Anonym chatt via Hitta last</h3>
-            <p>Bud-system och chatt där Hitta last förmedlar. Kontaktuppgifter delas aldrig mellan parterna.</p>
+            <span class="feature-icon">🚛</span>
+            <h3>Lediga bilar och returlast</h3>
+            <p>Har du en bil som står tom eller kör hem utan last? Lägg ut den med plats, rutt och tid. Transportköpare och andra åkerier föreslår last, du fyller tomma mil med betalda kilometer.</p>
+          </div>
+          <div class="feature">
+            <span class="feature-icon">🔔</span>
+            <h3>Avisering i varje steg</h3>
+            <p>När chauffören markerar lastat, på väg och lossat får både transportköparen och åkeriet en avisering direkt. Ingen behöver ringa och fråga var bilen är, mindre manuellt arbete för alla.</p>
           </div>
           <div class="feature">
             <span class="feature-icon">📄</span>
             <h3>Digital fraktsedel</h3>
-            <p>Föraren laddar upp fraktsedeln direkt. Allt sparas digitalt för bokföring och uppföljning.</p>
-          </div>
-          <div class="feature">
-            <span class="feature-icon">📦</span>
-            <h3>Erbjud last</h3>
-            <p>Publicera körningar och nå hundratals åkerier. Hitta last tar hand om avtal, fakturering och uppföljning som speditör. Du ser ett pris, exkl. moms, och får en faktura från Hitta last.</p>
+            <p>Chauffören fotar fraktsedeln i mobilen när godset är levererat. Den sparas på körningen och finns för bokföring och uppföljning, inga papper som försvinner.</p>
           </div>
           <div class="feature">
             <span class="feature-icon">🧾</span>
-            <h3>Så fungerar det</h3>
-            <p>1. Åkeriet lägger bud (åkarpris). 2. Uppdragsgivaren ser sitt pris och accepterar. 3. Åkeriet kör och laddar upp fraktsedel. 4. Åkeriet fakturerar Hitta last, Hitta last fakturerar uppdragsgivaren.</p>
+            <h3>Fakturaunderlag klart direkt</h3>
+            <p>Varje utförd körning får ett färdigt fakturaunderlag med körnings-ID, ladda ned som PDF. Inget dubbelarbete i slutet av månaden.</p>
+          </div>
+          <div class="feature">
+            <span class="feature-icon">🛂</span>
+            <h3>Kontrollerade åkerier</h3>
+            <p>Hitta last kontrollerar trafiktillstånd och F-skatt innan ett åkeri får ta uppdrag. Du vet att bilen som hämtar ditt gods tillhör ett seriöst företag.</p>
+          </div>
+          <div class="feature">
+            <span class="feature-icon">👷</span>
+            <h3>Chaufförsläge i mobilen</h3>
+            <p>Dina chaufförer får egen inloggning, ser sina körningar och rapporterar lastat och lossat med ett tryck. Installera hittalast.se som app på telefonen.</p>
+          </div>
+          <div class="feature">
+            <span class="feature-icon">🧭</span>
+            <h3>Planera rutt och följ upp</h3>
+            <p>Planera rutten med laster längs vägen, se alla dina uppdrag i en kalender och följ omsättningen per vecka, månad och år i statistiken.</p>
           </div>
         </div>
 
@@ -3016,7 +3032,7 @@ async function publicDashboard() {
       document.getElementById('signup-area').innerHTML = `
         <div class="landing-success">
           <h3>🎉 Du är inne!</h3>
-          <p>Vi har sparat din anmälan och hör av oss till <b>${esc(email)}</b> innan lansering den 30 november.</p>
+          <p>Vi har sparat din anmälan och hör av oss till <b>${esc(email)}</b> innan lansering den 18 januari.</p>
         </div>`;
     } catch (err) {
       btn.disabled = false;
@@ -5561,7 +5577,7 @@ route(/^\/waitlist$/, async (_m, u) => {
       <a href="#/" class="btn secondary">← Tillbaka</a>
       <h2 style="margin:0">📋 Väntelista (${rows.length})</h2>
     </div>
-    <div class="muted" style="margin-bottom:12px">Personer som anmält sig till lansering ${launchDateLong()} 2026. Lanseringsmejlet går automatiskt var 15:e minut under lanseringsdagen till alla som inte redan fått det, och du får ett kvitto under Aviseringar.</div>
+    <div class="muted" style="margin-bottom:12px">Personer som anmält sig till lansering ${launchDateLong()} ${LAUNCH_DATE.getFullYear()}. Lanseringsmejlet går automatiskt var 15:e minut under lanseringsdagen till alla som inte redan fått det, och du får ett kvitto under Aviseringar.</div>
     <div class="btn-row" style="margin-bottom:12px;align-items:center">
       ${isLaunched()
         ? `<button id="sendLaunchBtn" class="secondary">📨 Skicka lanseringsmejl nu (${rows.filter(r => !r.launch_email_sent_at).length} väntar)</button>
