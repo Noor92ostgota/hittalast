@@ -905,10 +905,12 @@ async function cleanupOrphanedBookings() { /* RLS + FK cascade hanterar */ }
 const ROLE_LABEL = {
   akare: 'Åkare',
   chauffor: 'Chaufför',
-  speditor: 'Speditör',
+  speditor: 'Transportköpare (gammal roll)', // sedan 2026-11-26 har alla kundkonton rollen akare: samma funktioner för åkerier och transportköpare
   admin: 'Admin',
 };
 // Inloggade användare som både kan publicera och acceptera körningar
+// Alla kundkonton (åkerier och transportköpare) har rollen akare och samma funktioner: lägga ut körningar, lägga bud,
+// bilar, chaufförer, lediga bilar. Rollen speditor finns inte längre på några konton (konverterad 2026-11-26).
 function canAcceptAndPost(u) { return u && (u.role === 'akare' || u.role === 'admin'); }
 function isHauler(u) { return u && (u.role === 'akare' || u.role === 'admin'); }
 // --------- Bud + aviseringar ---------
@@ -4586,7 +4588,8 @@ route(/^\/vehicles\/([\w-]+)\/edit$/, async (m, u) => {
   };
 });
 
-// --------- Lediga bilar (åkerier och transportköpare publicerar, även via mejlimport; alla utom chaufförer ser dem och föreslår last via Hitta last) ---------
+// --------- Lediga bilar (alla kundkonton publicerar, även via mejlimport; alla utom chaufförer ser dem och föreslår last via Hitta last) ---------
+// Åkerier och transportköpare har samma roll (akare) och samma funktioner sedan 2026-11-26 (Noors beslut).
 route(/^\/free-vehicles$/, async (_m, u) => {
   if (!u || u.role === 'chauffor') return navigate('/'); // åkerier och transportköpare; åkeriets identitet döljs för transportköpare
   const isBuyerView = u.role === 'speditor';
@@ -5748,7 +5751,7 @@ function userForm(target) {
             <select name="role" required>
               <option value="akare" ${t.role==='akare'?'selected':''}>Åkare</option>
               <option value="chauffor" ${t.role==='chauffor'?'selected':''}>Chaufför</option>
-              <option value="speditor" ${t.role==='speditor'?'selected':''}>Speditör</option>
+              ${t.role==='speditor' ? `<option value="speditor" selected>Transportköpare (gammal roll, byt till Åkare)</option>` : ''}
               <option value="admin" ${t.role==='admin'?'selected':''}>Admin</option>
             </select>
           </div>
