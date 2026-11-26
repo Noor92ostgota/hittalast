@@ -2922,7 +2922,7 @@ async function publicDashboard() {
           <div class="feature">
             <span class="feature-icon">🚛</span>
             <h3>Lediga bilar</h3>
-            <p>Åkerier publicerar lediga fordon med plats, rutt och tider. Transportköpare ser bilarna och föreslår last, Hitta last förmedlar kontakten.</p>
+            <p>Åkerier och transportköpare publicerar lediga fordon med plats, rutt och tider. Andra ser bilarna och föreslår last, Hitta last förmedlar kontakten.</p>
           </div>
           <div class="feature">
             <span class="feature-icon">💬</span>
@@ -4586,7 +4586,7 @@ route(/^\/vehicles\/([\w-]+)\/edit$/, async (m, u) => {
   };
 });
 
-// --------- Lediga bilar (åkerier publicerar, även via mejlimport; åkerier och transportköpare ser dem och föreslår last via Hitta last) ---------
+// --------- Lediga bilar (åkerier och transportköpare publicerar, även via mejlimport; alla utom chaufförer ser dem och föreslår last via Hitta last) ---------
 route(/^\/free-vehicles$/, async (_m, u) => {
   if (!u || u.role === 'chauffor') return navigate('/'); // åkerier och transportköpare; åkeriets identitet döljs för transportköpare
   const isBuyerView = u.role === 'speditor';
@@ -4626,7 +4626,7 @@ route(/^\/free-vehicles$/, async (_m, u) => {
   mount(`
     <h2>🚚 Lediga bilar (${active.length})</h2>
     <div class="btn-row">
-      ${canAcceptAndPost(u) ? `<a class="btn" href="#/free-vehicles/new">➕ Lägg till ledig bil</a>` : ''}
+      ${u.role !== 'chauffor' ? `<a class="btn" href="#/free-vehicles/new">➕ Lägg till ledig bil</a>` : ''}
     </div>
     <div class="banner info">Lediga bilar som söker last. Har du gods som passar klickar du <b>Föreslå last</b> på bilen: förslaget går till Hitta last som matchar och tar kontakt med båda parter. Inga kontaktuppgifter byts direkt.${isBuyerView ? ' Vem som har bilen visas inte, Hitta last är din motpart.' : ''}${importedCount ? ` Bilar märkta 📨 kommer från transportköpares mejl ("öppen för förslag").` : ''}</div>
     <div class="card">
@@ -4661,7 +4661,7 @@ route(/^\/free-vehicles$/, async (_m, u) => {
                     : `<span class="badge" style="background:#fed7aa;color:#9a3412;font-weight:600">📨 Mejlförfrågan</span><br><span class="muted" style="font-size:11px">kontakt via Hitta last</span>`)
                 : (u.role === 'admin'
                     ? `${owner ? esc(owner.company || owner.name) : '—'}<br><span class="muted" style="font-size:11px">${owner ? esc(owner.phone || owner.email || '') : ''}</span>`
-                    : `${isMine ? 'Min bil' : (owner && !isBuyerView ? esc(owner.company || owner.name) : 'Åkeri')}<br><span class="muted" style="font-size:11px">kontakt via Hitta last</span>`)}</td>
+                    : `${isMine ? 'Min bil' : (owner && !isBuyerView && owner.role !== 'speditor' ? esc(owner.company || owner.name) : (owner?.role === 'speditor' ? 'Transportköpare' : (owner ? 'Åkeri' : 'Via Hitta last')))}<br><span class="muted" style="font-size:11px">kontakt via Hitta last</span>`)}</td>
               <td style="font-size:12px">${esc(comment)}</td>
               <td class="nowrap">${isMine || u.role === 'admin'
                 ? `<a class="btn secondary icon-btn" href="#/free-vehicles/${fv.id}/edit" title="Ändra">✏️</a>
@@ -4740,7 +4740,7 @@ function freeVehicleForm(fv, vehicles) {
         <div class="row-4">
           <div class="field"><label>Datum *</label><input name="availableFrom" type="date" required value="${esc(fv.availableFrom || '')}"></div>
           <div class="field"><label>Tid</label><input name="availableTime" type="time" value="${esc(fv.availableTime || '')}"></div>
-          <div class="field"><label>Bil (från Mina bilar)</label><select name="vehicleId">${vehOpts}</select></div>
+          ${vehicles.length ? `<div class="field"><label>Bil (från Mina bilar)</label><select name="vehicleId">${vehOpts}</select></div>` : `<div class="field"><label>Fordon</label><input disabled value="Beskriv bilen i kommentaren" style="color:var(--muted)"><input type="hidden" name="vehicleId" value=""></div>`}
           <div class="field"><label>Lediga FLM</label><input name="freeFlm" type="number" min="0" step="0.1" value="${esc(fv.freeFlm == null ? '' : fv.freeFlm)}" placeholder="13.6"></div>
         </div>
 
@@ -4762,8 +4762,8 @@ function freeVehicleForm(fv, vehicles) {
 }
 
 route(/^\/free-vehicles\/new$/, async (_m, u) => {
-  if (!canAcceptAndPost(u)) return navigate('/');
-  const vehicles = await db.byIndex('vehicles', 'haulerId', u.id);
+  if (!u || u.role === 'chauffor') return navigate('/'); // åkerier och transportköpare (t.ex. DSV) publicerar lediga bilar
+  const vehicles = u.role === 'speditor' ? [] : await db.byIndex('vehicles', 'haulerId', u.id);
   mount(`<h2>Lägg till ledig bil</h2>${freeVehicleForm(null, vehicles)}`);
   bindFreeVehicleForm(u, null);
 });
