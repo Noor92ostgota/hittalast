@@ -903,7 +903,7 @@ async function cleanupOrphanedBookings() { /* RLS + FK cascade hanterar */ }
 
 // --------- Helpers ---------
 const ROLE_LABEL = {
-  akare: 'Åkare',
+  akare: 'Företag', // en kundroll för åkerier och transportköpare (Noors namnval 2026-11-26)
   chauffor: 'Chaufför',
   speditor: 'Transportköpare (gammal roll)', // sedan 2026-11-26 har alla kundkonton rollen akare: samma funktioner för åkerier och transportköpare
   admin: 'Admin',
@@ -1645,7 +1645,7 @@ function updateBellBadge(count) {
 // egen session sparas i webbläsaren så man kan hoppa tillbaka utan att logga in igen.
 const TEST_USERS = [
   { email: 'noor@ostgotatransport.se',    role: 'admin',    label: 'Admin (Noor)',        icon: '🏢' },
-  { email: 'info@ostgotatransport.se',    role: 'akare',    label: 'Åkare (Katarina)',    icon: '🚚' },
+  { email: 'info@ostgotatransport.se',    role: 'akare',    label: 'Företag (Katarina)',    icon: '🚚' },
   { email: 'noormadjed@hotmail.com',      role: 'chauffor', label: 'Chaufför (Test)',     icon: '🚛' },
 ];
 const QUICK_LOGIN_KEY = 'hittalast_quick_logins_v1';     // gammal lösenordslagring – töms och används inte längre
@@ -1802,7 +1802,7 @@ function layout(inner) {
   // Roll-växlare: bara för admin ELLER när admin redan impersonat en annan
   const impersonatedBy = sessionStorage.getItem('impersonatedByEmail') || (u && u.role !== 'admin' && loadAdminSession()?.email) || '';
   const showSwitcher = u && (u.role === 'admin' || impersonatedBy || !!loadAdminSession());
-  const switcherBtn = showSwitcher ? `<button id="role-switcher" type="button" title="Snabbväxla mellan admin/åkare/chaufför" style="background:none;border:none;font-size:18px;cursor:pointer;padding:0 6px;line-height:1;position:relative">🎭${impersonatedBy?'<span style="position:absolute;top:-4px;right:-4px;background:#f97316;color:#fff;font-size:9px;padding:1px 4px;border-radius:8px;font-weight:700">!</span>':''}</button>` : '';
+  const switcherBtn = showSwitcher ? `<button id="role-switcher" type="button" title="Snabbväxla mellan admin/företag/chaufför" style="background:none;border:none;font-size:18px;cursor:pointer;padding:0 6px;line-height:1;position:relative">🎭${impersonatedBy?'<span style="position:absolute;top:-4px;right:-4px;background:#f97316;color:#fff;font-size:9px;padding:1px 4px;border-radius:8px;font-weight:700">!</span>':''}</button>` : '';
   const userBlock = u ? `<span class="who">${esc(u.name)} · ${ROLE_LABEL[u.role]}</span>
                <a href="#" id="logout-link"><span class="label">Logga ut</span> ↩</a>` : '';
   return `
@@ -3369,7 +3369,7 @@ function bindRowClicks() {
 
 // --------- Köpare: Ny körning ---------
 route(/^\/new$/, async (_m, u) => {
-  if (!canAcceptAndPost(u)) { toast(u ? 'Bara åkare kan lägga ut körningar' : 'Logga in för att skapa körning', 'err'); return navigate('/'); }
+  if (!canAcceptAndPost(u)) { toast(u ? 'Bara företagskonton kan lägga ut körningar' : 'Logga in för att skapa körning', 'err'); return navigate('/'); }
   mount(`
     <h2>Ny körning</h2>
     <div class="card">
@@ -3860,7 +3860,7 @@ function rpBuildPlan(opts) {
 
 let _rpMapInst = null; // en Leaflet-karta i taget – gamla tas bort när sidan besöks igen
 route(/^\/planera$/, async (_m, u) => {
-  if (!canAcceptAndPost(u)) { toast(u ? 'Bara åkare kan planera rutt' : 'Logga in som åkare för att planera rutt', 'err'); return navigate('/'); }
+  if (!canAcceptAndPost(u)) { toast(u ? 'Bara företagskonton kan planera rutt' : 'Logga in för att planera rutt', 'err'); return navigate('/'); }
   if (_rpMapInst) { try { _rpMapInst.remove(); } catch {} _rpMapInst = null; }
 
   // Förval från åkarens första bil
@@ -4156,7 +4156,7 @@ route(/^\/planera$/, async (_m, u) => {
 });
 
 route(/^\/available$/, async (_m, u) => {
-  if (!canAcceptAndPost(u)) { toast(u ? 'Bara åkare kan se tillgängliga körningar' : 'Logga in för att se tillgängliga körningar', 'err'); return navigate('/'); }
+  if (!canAcceptAndPost(u)) { toast(u ? 'Bara företagskonton kan se tillgängliga körningar' : 'Logga in för att se tillgängliga körningar', 'err'); return navigate('/'); }
   const allOpen = (await db.byIndex('bookings', 'status', 'open')).filter(b => b.buyerId !== u.id);
   applySort(allOpen);
   const sortKey = getSortKey();
@@ -4461,7 +4461,7 @@ route(/^\/available$/, async (_m, u) => {
 
 // --------- Åkare: Bilar (CRUD) ---------
 route(/^\/vehicles$/, async (_m, u) => {
-  if (!isHauler(u)) { toast('Endast åkare kan hantera bilar', 'err'); return navigate('/'); }
+  if (!isHauler(u)) { toast('Endast företagskonton kan hantera bilar', 'err'); return navigate('/'); }
   const list = await db.byIndex('vehicles', 'haulerId', u.id);
   list.sort((a, b) => (a.regNr || '').localeCompare(b.regNr || ''));
   mount(`
@@ -4826,7 +4826,7 @@ function bindFreeVehicleForm(u, fv) {
 
 // --------- Åkare: Chaufförer (CRUD + egna inloggningar) ---------
 route(/^\/drivers$/, async (_m, u) => {
-  if (!isHauler(u)) { toast('Endast åkare kan hantera chaufförer', 'err'); return navigate('/'); }
+  if (!isHauler(u)) { toast('Endast företagskonton kan hantera chaufförer', 'err'); return navigate('/'); }
   const list = await db.byIndex('drivers', 'haulerId', u.id);
   list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   const vehicles = await db.byIndex('vehicles', 'haulerId', u.id);
@@ -5749,9 +5749,9 @@ function userForm(target) {
           <div class="field"><label>Namn *</label><input name="name" required value="${esc(t.name || '')}"></div>
           <div class="field"><label>Roll *</label>
             <select name="role" required>
-              <option value="akare" ${t.role==='akare'?'selected':''}>Åkare</option>
+              <option value="akare" ${t.role==='akare'?'selected':''}>Företag</option>
               <option value="chauffor" ${t.role==='chauffor'?'selected':''}>Chaufför</option>
-              ${t.role==='speditor' ? `<option value="speditor" selected>Transportköpare (gammal roll, byt till Åkare)</option>` : ''}
+              ${t.role==='speditor' ? `<option value="speditor" selected>Transportköpare (gammal roll, byt till Företag)</option>` : ''}
               <option value="admin" ${t.role==='admin'?'selected':''}>Admin</option>
             </select>
           </div>
