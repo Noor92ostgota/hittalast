@@ -3411,7 +3411,7 @@ route(/^\/new$/, async (_m, u) => {
         <div class="row-3">
           <div class="field"><label>Lastningsdag</label><input name="loadDate" type="date" required></div>
           <div class="field"><label>Lastningstid</label><input name="loadTime" type="time"></div>
-          <div class="field"><label>Pris du betalar (kr, exkl. moms) <span class="muted">— valfritt</span></label><input name="price" type="number" min="0" step="1" placeholder="Lämna tomt → åkare föreslår pris"><div class="muted" id="priceHelp" style="font-size:12px;margin-top:4px">Exkl. moms. Lämna tomt så lägger åkerierna bud.</div></div>
+          <div class="field"><label>Pris du betalar (kr, exkl. moms) <span class="muted">— valfritt</span></label><input name="price" type="number" min="0" step="1" placeholder="Lämna tomt → åkare föreslår pris"><div class="muted" id="priceHelp" style="font-size:12px;margin-top:4px">Hitta lasts pris till dig som uppdragsgivare, exkl. moms. Lämna tomt så lägger åkerierna bud.</div></div>
         </div>
         <div class="row-3">
           <div class="field"><label>Lossningsdag</label><input name="unloadDate" type="date" required></div>
@@ -3490,7 +3490,7 @@ route(/^\/new$/, async (_m, u) => {
     const admin = canSeeCommission(currentUserSync()) && MARKUP_RATE != null;
     help.textContent = (v > 0 && admin)
       ? `Åkeriet får ${fmtMoney(haulerFromGross(v))}, Hitta lasts påslag ${fmtMoney(v - haulerFromGross(v))}. Allt exkl. moms.`
-      : 'Exkl. moms. Lämna tomt så lägger åkerierna bud.';
+      : 'Hitta lasts pris till dig som uppdragsgivare, exkl. moms. Lämna tomt så lägger åkerierna bud.';
   }
   const priceInput = document.querySelector('#newForm input[name="price"]');
   if (priceInput) priceInput.addEventListener('input', priceHelpUpdate);
@@ -6300,7 +6300,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
     } else {
       bidsBlock = `<div class="card"><h3>Inkomna bud (${bids.length})</h3>
         ${b.price != null ? `<div class="muted" style="margin-bottom:8px">Ditt föreslagna pris: <b>${fmtMoney(b.price)}</b> exkl. moms</div>` : ''}
-        <div class="muted" style="margin-bottom:8px;font-size:12px">Beloppen nedan är vad du betalar Hitta last, exkl. moms.</div>
+        <div class="muted" style="margin-bottom:8px;font-size:12px">Beloppen nedan är Hitta lasts pris till dig som uppdragsgivare, exkl. moms.</div>
         <table>
           <thead><tr><th>Åkare</th><th>Senaste bud (ditt pris)</th><th>Status</th><th>Historik</th><th></th></tr></thead>
           <tbody>
@@ -6411,8 +6411,8 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
           ${hideMoney ? '' : (isAdmin
             ? `<dt>Kundpris</dt><dd>${b.price == null ? '<span class="muted">Åkare föreslår pris</span>' : `<b>${fmtMoney(customerPriceOf(b))}</b> exkl. moms <span class="muted">· åkarpris ${fmtMoney(haulerPriceOf(b))} · påslag ${fmtMoney(markupOf(b))}</span>`}</dd>`
             : isBuyer
-            ? `<dt>Pris</dt><dd>${b.price == null ? '<span class="muted">Åkare föreslår pris</span>' : `<b>${fmtMoney(customerPriceOf(b))}</b> <span class="muted">exkl. moms, faktureras av Hitta last</span>`}</dd>`
-            : `<dt>Ditt pris</dt><dd>${b.price == null ? '<span class="muted">Du föreslår pris</span>' : `<b>${fmtMoney(haulerPriceOf(b))}</b> <span class="muted">exkl. moms, fakturerar du Hitta last</span>`}</dd>`)}
+            ? `<dt>Pris</dt><dd>${b.price == null ? '<span class="muted">Åkare föreslår pris</span>' : `<b>${fmtMoney(customerPriceOf(b))}</b> <span class="muted">exkl. moms, Hitta lasts pris till dig som uppdragsgivare</span>`}</dd>`
+            : `<dt>Ditt pris</dt><dd>${b.price == null ? '<span class="muted">Du föreslår pris</span>' : `<b>${fmtMoney(haulerPriceOf(b))}</b> <span class="muted">exkl. moms, ditt pris är det du fakturerar Hitta last</span>`}</dd>`)}
           ${b.description ? `<dt>Beskrivning</dt><dd>${esc(hideBuyerIdentity ? redactDescription(b.description) : b.description)}</dd>` : ''}
           <dt>Skapad</dt><dd>${fmtDate(b.createdAt)}</dd>
           ${b.acceptedAt ? `<dt>Accepterad</dt><dd>${fmtDate(b.acceptedAt)}</dd>` : ''}
