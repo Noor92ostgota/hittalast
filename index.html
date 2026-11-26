@@ -1316,9 +1316,10 @@ const HITTA_LAST = {
   company: 'Hitta last Sverige AB', orgNr: '559491-1702', vatNr: 'SE559491170201',
   email: 'info@hittalast.se', web: 'hittalast.se',
 };
-// Utan känt påslag (alla utom admin) lämnas beloppet orört: servern har redan räknat om det till rätt part
-function grossFromHauler(h) { return (h == null || isNaN(h)) ? null : (MARKUP_RATE == null ? Math.round(Number(h)) : Math.round(Number(h) * (1 + MARKUP_RATE))); }
-function haulerFromGross(g) { return (g == null || isNaN(g)) ? null : (MARKUP_RATE == null ? Math.round(Number(g)) : Math.round(Number(g) / (1 + MARKUP_RATE))); }
+// Avdragsmodell: provisionen är en andel av kundpriset, åkeriet får kundpris × (1 − provision). Utan känt påslag (alla utom admin)
+// lämnas beloppet orört: servern har redan räknat om det till rätt part
+function grossFromHauler(h) { return (h == null || isNaN(h)) ? null : (MARKUP_RATE == null ? Math.round(Number(h)) : Math.round(Number(h) / (1 - MARKUP_RATE))); }
+function haulerFromGross(g) { return (g == null || isNaN(g)) ? null : (MARKUP_RATE == null ? Math.round(Number(g)) : Math.round(Number(g) * (1 - MARKUP_RATE))); }
 // Åkarens pris på en körning: vyn ger hauler_price (åkeriet och admin), annars räknas det ur raden
 function haulerPriceOf(b) {
   if (!b || b.price == null) return null;
@@ -3489,7 +3490,7 @@ route(/^\/new$/, async (_m, u) => {
     const v = Number(inp.value);
     const admin = canSeeCommission(currentUserSync()) && MARKUP_RATE != null;
     help.textContent = (v > 0 && admin)
-      ? `Åkeriet får ${fmtMoney(haulerFromGross(v))}, Hitta lasts påslag ${fmtMoney(v - haulerFromGross(v))}. Allt exkl. moms.`
+      ? `Åkeriet får ${fmtMoney(haulerFromGross(v))}, Hitta lasts provision ${fmtMoney(v - haulerFromGross(v))}. Allt exkl. moms.`
       : 'Hitta lasts pris till dig som uppdragsgivare, exkl. moms. Lämna tomt så lägger åkerierna bud.';
   }
   const priceInput = document.querySelector('#newForm input[name="price"]');
@@ -3549,7 +3550,7 @@ async function haulerDashboard(u) {
       <div class="stat"><div class="val">${byStatus.accepted.length}</div><div class="lbl">Accepterade</div></div>
       <div class="stat"><div class="val">${byStatus.completed.length}</div><div class="lbl">Utförda</div></div>
       <div class="stat"><div class="val">${fmtMoney(totalEarned)}</div><div class="lbl">Åkarpris (utförda)</div></div>
-      ${canSeeCommission(u) ? `<div class="stat"><div class="val">${fmtMoney(byStatus.completed.reduce((s, b) => s + markupOf(b), 0))}</div><div class="lbl">Påslag (Hitta last)</div></div>` : ''}
+      ${canSeeCommission(u) ? `<div class="stat"><div class="val">${fmtMoney(byStatus.completed.reduce((s, b) => s + markupOf(b), 0))}</div><div class="lbl">Provision (Hitta last)</div></div>` : ''}
     </div>
     <div class="card">
       ${mine.length === 0
@@ -5960,13 +5961,13 @@ route(/^\/stats$/, async (_m, u) => {
       <div class="stat"><div class="val">${acceptedInRange.length}</div><div class="lbl">Accepterade uppdrag</div></div>
       <div class="stat"><div class="val">${completedInRange.length}</div><div class="lbl">Utförda uppdrag</div></div>
       <div class="stat"><div class="val">${fmtMoney(omsattning)}</div><div class="lbl">Åkarpris (utförda)</div></div>
-      ${canSeeCommission(u) ? `<div class="stat"><div class="val">${fmtMoney(provBetald)}</div><div class="lbl">Påslag (Hitta last)</div></div>
+      ${canSeeCommission(u) ? `<div class="stat"><div class="val">${fmtMoney(provBetald)}</div><div class="lbl">Provision (Hitta last)</div></div>
       <div class="stat"><div class="val">${fmtMoney(netto)}</div><div class="lbl">Kundpris totalt</div></div>` : ''}
     </div>
     <div class="card">
       <h3>Utförda uppdrag i perioden</h3>
       ${completedInRange.length === 0 ? `<div class="empty">Inga utförda uppdrag i vald period.</div>` : `<table>
-        <thead><tr><th>Datum</th><th>Från → Till</th><th>Åkarpris</th>${canSeeCommission(u) ? '<th>Påslag</th><th>Kundpris</th>' : ''}</tr></thead>
+        <thead><tr><th>Datum</th><th>Från → Till</th><th>Åkarpris</th>${canSeeCommission(u) ? '<th>Provision</th><th>Kundpris</th>' : ''}</tr></thead>
         <tbody>${completedInRange.sort((a,b)=>tsMs(b.completedAt)-tsMs(a.completedAt)).map(b => `<tr>
           <td>${fmtDate(b.completedAt)}</td>
           <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
@@ -6020,15 +6021,15 @@ route(/^\/settlement$/, async (_m, u) => {
     .map(p => `<option value="${p}" ${p===period?'selected':''}>${({month:'Denna månad',lastmonth:'Förra månaden',year:'Detta år',all:'Allt'})[p]}</option>`).join('');
   mount(`
     <h2>💼 Avräkning</h2>
-    <div class="banner info">Hitta last är speditör på varje körning: åkeriet fakturerar Hitta last åkarpriset, Hitta last fakturerar uppdragsgivaren kundpriset (åkarpris plus påslag). Här ser du underlaget per utförd körning. Belopp exkl. moms.</div>
+    <div class="banner info">Hitta last är speditör på varje körning: åkeriet fakturerar Hitta last åkarpriset, Hitta last fakturerar uppdragsgivaren kundpriset, provisionen dras av innan åkeriet får sitt pris. Här ser du underlaget per utförd körning. Belopp exkl. moms.</div>
     <div class="card" id="markupCard">
-      <h3>🔒 Provisionspåslag</h3>
-      <div class="muted" style="font-size:12px;margin-bottom:8px">Påslaget läggs på åkarpriset och ger kundpriset. Bara du som admin ser det, åkerier och uppdragsgivare ser bara sitt eget pris. Ändringen gäller nya bud och öppna körningar direkt, redan accepterade körningar behåller sitt sparade påslag.</div>
+      <h3>🔒 Provision</h3>
+      <div class="muted" style="font-size:12px;margin-bottom:8px">Provisionen dras från kundpriset: åkeriet får kundpriset minus provisionen. Bara du som admin ser den, åkerier och uppdragsgivare ser bara sitt eget pris. Ändringen gäller nya bud och öppna körningar direkt, redan accepterade körningar behåller sin sparade provision.</div>
       <form id="markupForm" class="btn-row" style="align-items:center">
-        <label class="muted">Påslag i procent:</label>
+        <label class="muted">Provision i procent av kundpriset:</label>
         <input type="number" name="rate" min="0" max="50" step="0.1" value="${MARKUP_RATE != null ? String(Math.round(MARKUP_RATE * 10000) / 100) : ''}" style="width:90px" required>
         <button type="submit">Spara</button>
-        <span class="muted" style="font-size:12px">${MARKUP_RATE != null ? `Just nu ${(MARKUP_RATE * 100).toLocaleString('sv-SE')} %: åkarpris 10 000 kr ger kundpris ${fmtMoney(grossFromHauler(10000))}` : 'Kunde inte läsa påslaget, ladda om sidan'}</span>
+        <span class="muted" style="font-size:12px">${MARKUP_RATE != null ? `Just nu ${(MARKUP_RATE * 100).toLocaleString('sv-SE')} %: kundpris 10 000 kr ger åkarpris ${fmtMoney(haulerFromGross(10000))}` : 'Kunde inte läsa påslaget, ladda om sidan'}</span>
       </form>
     </div>
     <div class="card">
@@ -6043,11 +6044,11 @@ route(/^\/settlement$/, async (_m, u) => {
       <div class="stat"><div class="val">${all.length}</div><div class="lbl">Utförda körningar</div></div>
       <div class="stat"><div class="val">${fmtMoney(sumH)}</div><div class="lbl">Att betala åkerier (åkarpris)</div></div>
       <div class="stat"><div class="val">${fmtMoney(sumC)}</div><div class="lbl">Att fakturera uppdragsgivare</div></div>
-      <div class="stat"><div class="val">${fmtMoney(sumM)}</div><div class="lbl">Påslag (Hitta lasts intäkt)</div></div>
+      <div class="stat"><div class="val">${fmtMoney(sumM)}</div><div class="lbl">Provision (Hitta lasts intäkt)</div></div>
     </div>
     <div class="card">
       ${all.length === 0 ? `<div class="empty">Inga utförda körningar i perioden.</div>` : `<table class="compact">
-        <thead><tr><th>Utförd</th><th>Från → Till</th><th>Uppdragsgivare</th><th>Åkeri</th><th>Åkarpris</th><th>Påslag</th><th>Kundpris</th><th></th></tr></thead>
+        <thead><tr><th>Utförd</th><th>Från → Till</th><th>Uppdragsgivare</th><th>Åkeri</th><th>Åkarpris</th><th>Provision</th><th>Kundpris</th><th></th></tr></thead>
         <tbody>${all.map(b => `<tr>
           <td class="nowrap">${b.completedAt ? new Date(b.completedAt).toLocaleDateString('sv-SE') : '—'}</td>
           <td><b>${esc(b.fromLocation)}</b> → <b>${esc(b.toLocation)}</b></td>
@@ -6064,11 +6065,11 @@ route(/^\/settlement$/, async (_m, u) => {
   document.getElementById('markupForm').onsubmit = async e => {
     e.preventDefault();
     const pct = Number(new FormData(e.target).get('rate'));
-    if (!isFinite(pct) || pct < 0 || pct > 50) { toast('Ange ett påslag mellan 0 och 50 procent', 'err'); return; }
+    if (!isFinite(pct) || pct < 0 || pct > 50) { toast('Ange en provision mellan 0 och 50 procent', 'err'); return; }
     const { data, error } = await sb.rpc('set_markup_rate', { p_rate: pct / 100 });
     if (error) { toast('Kunde inte spara: ' + friendlyError(error), 'err'); return; }
     MARKUP_RATE = Number(data);
-    toast(`Påslaget är nu ${(MARKUP_RATE * 100).toLocaleString('sv-SE')} %`);
+    toast(`Provisionen är nu ${(MARKUP_RATE * 100).toLocaleString('sv-SE')} %`);
     render();
   };
   document.getElementById('settleForm').onsubmit = e => {
@@ -6409,7 +6410,7 @@ async function renderBookingDetail(b, buyer, hauler, me, ctx) {
             ${!b.adr && !b.tailLift && !b.openSide ? '<span class="muted">Inga särskilda</span>' : ''}
           </dd>
           ${hideMoney ? '' : (isAdmin
-            ? `<dt>Kundpris</dt><dd>${b.price == null ? '<span class="muted">Åkare föreslår pris</span>' : `<b>${fmtMoney(customerPriceOf(b))}</b> exkl. moms <span class="muted">· åkarpris ${fmtMoney(haulerPriceOf(b))} · påslag ${fmtMoney(markupOf(b))}</span>`}</dd>`
+            ? `<dt>Kundpris</dt><dd>${b.price == null ? '<span class="muted">Åkare föreslår pris</span>' : `<b>${fmtMoney(customerPriceOf(b))}</b> exkl. moms <span class="muted">· åkarpris ${fmtMoney(haulerPriceOf(b))} · provision ${fmtMoney(markupOf(b))}</span>`}</dd>`
             : isBuyer
             ? `<dt>Pris</dt><dd>${b.price == null ? '<span class="muted">Åkare föreslår pris</span>' : `<b>${fmtMoney(customerPriceOf(b))}</b> <span class="muted">exkl. moms, Hitta lasts pris till dig som uppdragsgivare</span>`}</dd>`
             : `<dt>Ditt pris</dt><dd>${b.price == null ? '<span class="muted">Du föreslår pris</span>' : `<b>${fmtMoney(haulerPriceOf(b))}</b> <span class="muted">exkl. moms, ditt pris är det du fakturerar Hitta last</span>`}</dd>`)}
